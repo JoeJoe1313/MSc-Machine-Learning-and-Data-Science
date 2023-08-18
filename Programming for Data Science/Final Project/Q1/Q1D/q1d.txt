@@ -1,0 +1,11 @@
+I find an advantage of R to be its large collection of base functions, including for performing mathematical operations, statistical approaches, and even performing data analysis. In order to do many of these things in Python in most cases non standard libraries should be first installed and then imported such as numpy, pandas, scipy. For example:
+
+- From this assessment: In R the function rank() can be directly applied to the numeric vector. In Python, for example, pandas had to be used while also having to introduce two dataframes at the beginning, not only one. This makes the code not so clean and a bit harder to follow the logic, it's longer and more data transformation operations had to be performed on dataframes.
+
+- In the same context, in R we can perform operations on a dataframe using just base R, whereas in Python pandas should be installed and imported in order to have the possibility to work with dataframes.  
+
+- From this assessment: For the normal distribution, in R we could directly use qnorm(), whereas in Python, again, a library should have been installed and imported (scipy).
+
+- An example is also the WMW test, which is again available in base R (wilcox.test), but not in Python.
+
+- Also, for the assessments for the R questions we used base R for almost everything, in Python this wouldn't have been possible.

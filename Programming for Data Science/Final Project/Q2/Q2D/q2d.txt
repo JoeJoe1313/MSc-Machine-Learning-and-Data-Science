@@ -1,0 +1,9 @@
+I find classes to be better in Python. Python is developed with the idea of being an object oriented programming language, and as such the classes in Python are fundamental elements for which there are clearly defined rules and documentation on how to be used. 
+
+Whereas, in R there are a few ways to have a class (S3 and R6 for example) which can lead to code inconsistency, and moreover it becomes hard to maintain such inconsistent code. Also, when starting to learn classes in R theese multiple ways of writing classes are quite confusing. For example:
+
+- In R6 there is a concept of public and private members of the class, in S3 there are no private members: In S3 we can directly access the name and age of the student without even having get methods, in R6 if we want to directly access the name we would get the NULL value from the private part of the class, and if we use the get method only then we would get the originally passed name.
+
+- In S3, a method is defined in two steps, first by being decalred (using UseMethod("method_name")) and after that an implementation of the method. This approach is not stnadrad for OOP. R6 approach is a lot closer to the one in Python and standard OOP practices.
+
+- In S3, if a method is used, the S3 object is passed to the method, not in the classical way of applying the method to the object (as in R6 and Python).
