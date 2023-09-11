@@ -1,0 +1,1063 @@
+---
+title: "Supplementary work"
+output: pdf_document
+---
+
+```{r load libraries}
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(naniar)
+#library(tidyverse)
+library(GGally)
+library(MTS)
+```
+
+### Loading data
+
+Data loading: 
+
+```{r load data}
+df <- read.csv("UK_avgpropertyprices.csv", header = TRUE)
+df_filtered <- df %>% filter(Region_Name %in% c("London", "Wales"))
+```
+
+Checking for missing values with
+
+```{r check for missing data in London and Walse}
+vis_miss(df_filtered)
+```
+
+or with
+
+```{r}
+sum(apply(df_filtered,2, function(x) is.na(x)))
+```
+
+Also confirm the start and end date are the same:
+
+```{r}
+df_filtered %>% 
+  filter(Region_Name %in% c("Wales")) %>% 
+  select(Date) %>%
+  summarise(min = min(Date), max = max(Date))
+
+df_filtered %>% 
+  filter(Region_Name %in% c("London")) %>% 
+  select(Date) %>%
+  summarise(min = min(Date), max=max(Date))
+```
+
+# Time Series Analysis
+
+Data wrangling, transform data to wide format:
+
+```{r}
+data <- df_filtered %>% select(Region_Name, Date, Detached_Average_Price)
+data_wide <- reshape(data, idvar = "Date", timevar = "Region_Name", direction = "wide")
+data_wide <- data_wide %>% rename(
+    Wales = Detached_Average_Price.Wales,
+    London = Detached_Average_Price.London
+)
+data_wide$Date <- as.Date(data_wide$Date, "%d/%m/%Y")
+```
+
+Create a bivariate time series (335 data points):
+
+```{r}
+bivariate_ts <- ts(data_wide[,-1])
+plot(bivariate_ts)
+```
+
+
+(In order to model the data as a stationary bivariate time series) we first reexpress it as percentage relative price changes or percentage returns by $X_{t1} = 100\frac{D_t - D_{t-1}}{D_{t-1}}$ and $X_{t2} = 100\frac{A_t - A_{t-1}}{A_{t-1}}$. We are observing the bivariate time series $X_t = (X_{t1}, X_{t2})'$ (334 data points).
+
+```{r}
+London <- 100 * (bivariate_ts[,"London"] - stats::lag(bivariate_ts[,"London"])) / stats::lag(bivariate_ts[,"London"])
+Wales <- 100 * (bivariate_ts[,"Wales"] - stats::lag(bivariate_ts[,"Wales"])) / stats::lag(bivariate_ts[,"Wales"])
+percentage_returns <- as.ts(cbind(Wales, London))
+#percentage_returns
+plot.ts(percentage_returns)
+```
+
+The estimators of the autocorrelations of the two univariate series are:
+
+```{r Fig1, fig.height=10, fig.width=15}
+par(mfrow = c(2,1))
+acf(Wales, ci.type = "ma")
+acf(London, ci.type = "ma")
+```
+
+They are not significantly different from zero.
+
+
+```{r}
+par(mfrow = c(2,2))
+plot(percentage_returns[,"Wales"], percentage_returns[,"London"], xlab="Wales", ylab="London", main="Percentage Returns")
+
+plot(stats::lag(percentage_returns[,"Wales"]), percentage_returns[,"London"], xlab="Wales Lag 1", ylab="London", main="Percentage Returns")
+
+plot(stats::lag(percentage_returns[,"London"]), percentage_returns[,"Wales"], xlab="London Lag 1", ylab="Wales", main="Percentage Returns")
+
+plot(stats::lag(percentage_returns[,"Wales"]), percentage_returns[,"Wales"], xlab="Wales Lag 1", ylab="Wales", main="Percentage Returns")
+```
+
+The sample autocorrelations and cross-correlations are:
+
+```{r}
+acf(percentage_returns, ci.type = "ma")
+```
+
+We see that although the autocorrelations $\rho_{11}$ (Wales) and $\rho_{22}$ (London) are all small, there is a much larger correlation between $X_{t-1, 1}$ and $X_{t,2}$. This suggests the Wales return on month $t-1$ may be of assistance in predicting the London return on month $t$. This can be supported by the scatterplot of the points $(x_{t-1,1}, x_{t,2})$, $t=2,...,334$.
+
+```{r}
+plot(stats::lag(percentage_returns[,"Wales"]), percentage_returns[,"London"], xlab="Wales Lag 1", ylab="London", main="Percentage Returns")
+```
+
+Cross-correlation matrix and ccf plots:
+
+```{r}
+ccm(percentage_returns, level = TRUE)
+```
+
+Signs explanation:
+
+- Plus sign (+) means that the corresponding correlation coefficient is greater than or equal to 2/$\sqrt{T}$
+- Minus sign (-) means that the corresponding correlation coefficient is less than or equal to -2/$\sqrt{T}$
+- Period (.) means that the corresponding correlation coefficient is between -2/$\sqrt{T}$ and 2/$\sqrt{T}$
+
+### Testing Zero Cross-Correlations
+
+Null hypothesis: $$H_0: \rho_1 = ... = \rho_m = 0$$ vs the alternative hypothesis $$H_a: \rho_i \neq 0, \text{for some } i \text{satisfying } 1 \leq i \leq m.$$
+
+```{r}
+mq(percentage_returns)
+```
+
+The p-values are equal to 0 so we reject the null hypothesis. The Portmanteau test confirms the existence of serial dependence in the bivariate return series at the $5%$ significance level. (simply said: there is evidence for the existence of linear dynamic dependence in the data)
+
+```{r setup, message=FALSE, echo=FALSE}
+library(dplyr)
+library(readr)
+library(naniar)
+library(lubridate)
+library(ggplot2)
+library(spdep)
+library(gstat)
+library(sf)
+library(gridExtra)
+library(lemon)
+library(scales)
+library(reshape)
+```
+
+
+## Spatial EDA
+```{r spatial-read-clean, echo=FALSE, message = FALSE}
+data <- read_csv("Data/UK_avgpropertyprices.csv") %>% as_tibble()
+data$Date <- as.Date(data$Date, "%d/%m/%Y")
+# Read shape file
+shape_l1 <- read_sf("Data/Auxiliary Data/International_Territorial_Level_1_(January_2021)_UK_BUC")
+# Fix region names
+shape_l1$ITL121NM <- gsub(" [(]England[])]", "", shape_l1$ITL121NM)
+shape_l1$ITL121NM[shape_l1$ITL121NM == "East"] <- "East of England"
+data$Region_Name[data$Region_Name == "West Midlands Region"] <- "West Midlands"
+# Read in level 2 shape files and fix column orders to match shape_l1
+shape_l2_1 <- read_sf("Data/Auxiliary Data/MetCounties_(Dec_2018)_EN_BUC")
+shape_l2_1 <- shape_l2_1[, c(1:7,9,10,8,11)]
+shape_l2_2 <- read_sf("Data/Auxiliary Data/Counties_and_Unitary_Authorities_(December_2022)_UK_BUC")
+shape_l2_2 <- shape_l2_2[,c(1:3,5:11)]
+# Standardise column names
+sf_names <- names(shape_l1)
+sf_names[2:3] <- c("CODE", "NAME")
+names(shape_l1) <- sf_names
+names(shape_l2_1) <- sf_names
+names(shape_l2_2) <- sf_names
+# Consolidate into shape_l2 and add Northern Ireland
+shape_l2 <- rbind(shape_l2_1,
+                  shape_l2_2,
+                  shape_l1 %>% filter(NAME == "Northern Ireland") %>%
+                    mutate(CODE = "N92000001"))
+```
+
+
+```{r spatial-add-variables, echo=FALSE, message = FALSE}
+# Add average column
+data <- data %>% mutate(Average_Price =
+                          rowMeans(select(data, 4:7), na.rm = TRUE))
+# Get 15 year change in price
+date_last <- max(data$Date)
+date_15Y <- date_last - years(15)
+cols <- names(data)[4:8]
+fun_pctchange <- function(x){x/lag(x)-1}
+data <- data %>% filter(Date %in% c(date_last, date_15Y)) %>%
+          group_by(Area_Code) %>%
+          arrange(Date, .by_group = TRUE) %>%
+          mutate(across(all_of(cols), fun_pctchange, .names = "{col}_15Y"))
+# Add highest/lowest variables
+data <- data %>% ungroup %>%
+  mutate(`highest_change` = names(.[,9:12])[max.col(.[,9:12])],
+         `lowest_change` = names(.[,9:12])[max.col(1/.[,9:12])])
+```
+
+```{r spatial-shape-data, echo=FALSE, message = FALSE}
+# Filter to last date
+data_latest <- data %>% filter(Date == date_last)
+# Get level 1 / level 2 data
+codes_l1 <- c("E12", "S92", "W92", "N92")
+data_l1 <- data_latest %>%
+  filter(substr(Area_Code, 1, 3) %in% codes_l1) %>%
+  arrange(Region_Name)
+codes_l2 <- c("E06", "E09", "E10", "E11", "S12", "W06", "N92")
+data_l2 <- data_latest %>%
+  filter(substr(Area_Code, 1, 3) %in% codes_l2) %>%
+  arrange(Area_Code)
+# Add data to shape files
+shape_l1 <- shape_l1 %>% arrange(NAME)
+shape_data_l1 <- cbind(shape_l1,
+                       data_l1[,4:ncol(data_l1)])
+shape_l2 <- shape_l2 %>% arrange(CODE) %>%
+  filter(CODE %in% data_l2$Area_Code)
+shape_data_l2 <- cbind(shape_l2,
+                       data_l2[,4:ncol(data_l2)])
+```
+
+```{r spatial-distance, echo=FALSE, message = FALSE}
+lond_long <- shape_data_l2 %>% filter(CODE == "E09000001") %>%
+  select(LONG) %>% as.numeric() %>% .[1]
+lond_lat <- shape_data_l2 %>% filter(CODE == "E09000001") %>%
+  select(LAT) %>% as.numeric() %>% .[1]
+lond_flatprice <- shape_data_l2 %>% filter(CODE == "E09000001") %>%
+  select(Flat_Average_Price)%>% as.numeric() %>% .[1]
+lond_flatpct <- shape_data_l2 %>% filter(CODE == "E09000001") %>%
+  select(Flat_Average_Price_15Y)%>% as.numeric() %>% .[1]
+shape_data_l2 <- shape_data_l2 %>% mutate(LONG_diff = LONG - lond_long,
+                         LAT_diff = LAT - lond_lat,
+                         Distance_CoL = sqrt(LONG_diff^2 + LAT_diff^2),
+                         FlatPriceDiff_CoL = Flat_Average_Price - lond_flatprice,
+                         FlatPctDiff_CoL = Flat_Average_Price_15Y - lond_flatpct)
+#plot(log(shape_data_l2$Distance_CoL), log(shape_data_l2$Flat_Average_Price))
+```
+
+In order to gauge a rough idea of the data, two simple showing the semi-detached average of all property types across a) ITL 2 and b) ITL 3 levels are presented. Semi-detached prices tend to be in the middle of the range of property types and is thus a useful metric in ascertaining an initial impression.
+
+```{r spatial-plots1, echo=FALSE, message = FALSE,out.width="80%",fig.height=2, fig.align = 'center'}
+# Plot colours
+col_grad_3 <- c("navyblue", "darkmagenta", "darkorange1")
+# Plot theme
+theme_map_plt <- theme(legend.position="right",
+          legend.title = element_blank(),
+          legend.key.width= unit(1, 'cm'),
+          axis.text =  element_blank(),
+          axis.ticks = element_blank(),
+          plot.margin=margin(0,0,0,0))
+# Pounds formatting function
+pounds <- function(x){dollar(x, prefix="£", big.mark = " ")}
+# Plot
+p1 <- ggplot() +
+    geom_sf(data = shape_data_l1, aes(fill = Semi_Detached_Average_Price),
+            colour = "grey", lwd = 0.05) +
+    scale_fill_gradientn(limits = c(130000,750000),
+                         colours=col_grad_3,
+                         labels = pounds) +
+    theme_map_plt
+p2 <- ggplot() +
+    geom_sf(data = shape_data_l2, aes(fill = Semi_Detached_Average_Price),
+            colour = "transparent") +
+  scale_fill_gradientn(limits = c(130000,750000),
+                       colours=col_grad_3,
+                       na.value = col_grad_3[3])+
+    theme_map_plt
+mylegend <- g_legend(p1)
+p3 <- grid.arrange(arrangeGrob(p1 + theme(legend.position="none"),
+                               mylegend,
+                               p2 + theme(legend.position="none"),
+                               nrow=1,
+                               widths = c(10,1,10)))
+```
+
+Both levels of the data, regional and county, show a clear clustering: higher property prices appear to be associated with closer proximity to central London. To a lesser extent, there appears to be a "hotspot" on Edinburgh evident on the right plot. Northern Ireland tends to have lower property prices evident on both a regional and county level with no "hotspot" evident for the areas surrounding Belfast. For the purpose of EDA, ITL 3 level will be considered.
+
+### Distributional Properties
+The kernel densities below by property type clearly shows that the distribution of the various types are different. The table of summary statistics supports this claim as the means, medians, and standard deviations are substantially different. On average, detached prices are higher than semi-detached, terraced, and flat prices (in that order). Their standard deviations are also of the same order - indicating more expensive properties types have wider dispersion around their means. All types exhibit a fairly large positive skew - but interestingly semi-detached has the greatest maximum value of all types. Missing values are few and not of concern for later analysis, however it is noted that City of London only has a flat property value. The implication is that regions that are typically more rural (further afield from cities) are associated with having lower flat prices.
+
+```{r spatial-distribution, echo = FALSE, message = FALSE,out.width="80%",fig.height=2.5, fig.align = 'center'}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+# Plot histogram
+col_hist <- alpha(c("Detached" = "navyblue",
+                    "Semi-Detached" = "darkmagenta",
+                    "Terraced" = "darkorange1",
+                    "Flat" =  "#006F6F"),
+                  0.6)
+n_bins <- 50
+col_hist <- alpha(c("Detached" = "navyblue",
+                    "Semi-Detached" = "darkmagenta",
+                    "Terraced" = "darkorange1",
+                    "Flat" =  "#006F6F"),
+                  0.6)
+p_hist <- ggplot(as.data.frame(shape_data_l2)) +
+    geom_density(aes(x=Detached_Average_Price,
+                       fill = "Detached")) +
+    geom_density(aes(x=Semi_Detached_Average_Price,
+                       fill = "Semi-Detached")) +
+    geom_density(aes(x=Terraced_Average_Price,
+                       fill = "Terraced")) +
+    geom_density(aes(x=Flat_Average_Price,
+                       fill = "Flat")) +
+    scale_fill_manual(values = col_hist) +
+    scale_x_continuous(labels = pounds) +
+    scale_y_continuous(labels = scales::percent) +
+    labs(x = "Average Price",
+         y = "Density",
+         color = "Type") + 
+    theme(axis.text.y =  element_blank(),
+          axis.ticks.y = element_blank(),
+          axis.title =  element_blank(),
+          legend.title = element_blank(),
+          legend.position = c(0.7, 0.9),
+          legend.text = element_text(size = 8),
+          legend.direction = "horizontal",
+          legend.background = element_rect(fill = "transparent"))
+```
+
+
+
+```{r spatial-distribution-tb, echo = FALSE, message = FALSE,out.width="100%",fig.height=2.5, fig.align = 'center'}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+# Get table of summary
+tbl_sum <- shape_data_l2 %>%   as.data.frame() %>%
+    select(Detached_Average_Price,
+           Semi_Detached_Average_Price,
+           Terraced_Average_Price,
+           Flat_Average_Price)
+colnames(tbl_sum) <- c("Detached", "Semi-Detached", "Terraced", "Flat")
+tbl_sum <- shape_data_l2 %>%   as.data.frame() %>%
+    select(Detached_Average_Price,
+           Semi_Detached_Average_Price,
+           Terraced_Average_Price,
+           Flat_Average_Price)
+colnames(tbl_sum) <- c("Detached", "Semi-Detached", "Terraced", "Flat")
+tbl_sum <- reshape::melt(tbl_sum, variable_name = "Property Type")
+tbl_sum <- tbl_sum %>%
+    group_by(`Property Type`) %>%
+    summarise(Min = min(value, na.rm = TRUE), 
+              Max = max(value, na.rm = TRUE),
+              `Lower Q` = quantile(value, 0.25, na.rm = TRUE),
+              `Upper Q` = quantile(value, 0.75, na.rm = TRUE),
+              IQR = IQR(value, na.rm = TRUE),
+              Median = median(value, na.rm = TRUE), 
+              Mean = mean(value, na.rm = TRUE),
+              SD = sd(value, na.rm = TRUE),
+              N = length(value),
+              NAs = sum(is.na(value)))
+t1 <- tableGrob(apply(round(tbl_sum[,-1]), 2, comma, big.mark = " "),
+                theme=ttheme_minimal(base_size = 8,
+                                     padding = unit(c(2, 2), "mm")),
+                rows = as.character(tbl_sum$`Property Type`))
+grid.arrange(p_hist, t1,
+             nrow = 2,
+             heights=unit(c(0.65, 0.35), "npc"))
+```
+
+### Trend component: all roads lead to London
+To account for some variation in the spatial data, we examine the relationship between the logarithm of flat prices and the logarithm of distance from the City of London. The left plot clearly indicates a negative linear association between the aforementioned variables. When a linear model is fit with log(Flat Price) as a response and log(Distance) as a predictor, a plot of the fitted values is produced (middle). As expected, it displays a pattern of exponential decrease as one gets further from City of London. It provides a decent approximation when compared to the plot of the actual property values (above). Examination of the residual plot (right) shows a plot consistent with random residuals. It is noted, however, that the model has positive residuals near cities such as Bristol and London where it under estimates property prices. Generally speaking, the described linear model does a decent job of accounting for variation of flat prices when accounting for distance from City of London. 
+
+```{r spatial-trends, echo = FALSE, message = FALSE,out.width="100%",fig.height=3.3, fig.align = 'center'}
+# Calculate distance from City of London
+lond_long <- shape_data_l2 %>% filter(CODE == "E09000001") %>%
+  select(LONG) %>% as.numeric() %>% .[1]
+lond_lat <- shape_data_l2 %>% filter(CODE == "E09000001") %>%
+  select(LAT) %>% as.numeric() %>% .[1]
+lond_flatprice <- shape_data_l2 %>% filter(CODE == "E09000001") %>%
+  select(Flat_Average_Price)%>% as.numeric() %>% .[1]
+lond_flatpct <- shape_data_l2 %>% filter(CODE == "E09000001") %>%
+  select(Flat_Average_Price_15Y)%>% as.numeric() %>% .[1]
+# Add distance, differencecolumns
+# shape_data_l2 <- shape_data_l2 %>% mutate(LONG_diff = LONG - lond_long,
+#                          LAT_diff = LAT - lond_lat,
+#                          Distance_CoL = sqrt(LONG_diff^2 + LAT_diff^2),
+#                          FlatPriceDiff_CoL = Flat_Average_Price - lond_flatprice,
+#                          FlatPctDiff_CoL = Flat_Average_Price_15Y - lond_flatpct)
+shape_data_l2 <- shape_data_l2 %>% mutate(LONG_diff = LONG - lond_long,
+                         LAT_diff = LAT - lond_lat,
+                         Distance_CoL = sqrt(LONG_diff^2 + LAT_diff^2),
+                         FlatPriceDiff_CoL = Flat_Average_Price - lond_flatprice,
+                         FlatPctDiff_CoL = Flat_Average_Price_15Y - lond_flatpct)
+# Add country
+country <- c(E = "England", W = "Wales", S = "Scotland", N = "Northern Ireland")
+shape_data_l2 <- shape_data_l2 %>%
+  mutate(Country = country[match(substring(CODE,1,1), names(country))])
+col_scatter <- c("England" = "#8e2b2f",
+                 "Northern Ireland" = "darkorange1",
+                 "Scotland" = "navyblue",
+                 "Wales" =  "#006F6F")
+# p_dist <- ggplot(shape_data_l2,
+#                  aes(x = log(Distance_CoL), y = log(Flat_Average_Price))) +
+#     geom_point(aes(colour = Country)) +
+#     scale_colour_manual(values = col_scatter) +
+#     geom_smooth(method = "lm", colour = "darkmagenta") +
+#     xlab("log(Distance from City of London)") +
+#     ylab("log(Flat Price)") +
+#     theme(legend.position = "bottom",
+#           legend.title = element_blank(),
+#           legend.text = element_text(size = 6))
+p_dist <- ggplot(shape_data_l2,
+                 aes(x = log(Distance_CoL), y = log(Flat_Average_Price))) +
+    geom_point(colour = "navyblue") +
+    geom_smooth(method = "lm", colour = "darkmagenta") +
+    xlab("log(Distance from City of London)") +
+    ylab("log(Flat Price)") +
+    theme(plot.margin = unit(c(0,0,0,0), "cm"),
+          axis.title = element_text(size = 8))
+```
+
+```{r spatial-lm, echo = FALSE, message = FALSE,out.width="100%",fig.height=2.25, fig.align = 'center'}
+shape_data_l2_lm <- shape_data_l2 %>% filter(!is.infinite(log(Distance_CoL)))
+fit_lm <- lm(log(Flat_Average_Price)~log(Distance_CoL), data=shape_data_l2_lm)
+shape_data_l2_lm$fitvals <- fit_lm$fitted.values
+shape_data_l2_lm$resids <- fit_lm$residuals
+col_grad_res <- c("navyblue", "white", "darkorange1")
+p_fit <- ggplot() +
+  geom_sf(data = shape_data_l2_lm, aes(fill = exp(fitvals)),
+            colour = "transparent") +
+  scale_fill_gradientn(colours=col_grad_3,
+                         na.value = col_grad_3[3],
+                         labels = pounds) +
+  theme(legend.position="bottom",
+          legend.title = element_blank(),
+          axis.text =  element_blank(),
+          axis.ticks = element_blank(),
+          plot.margin = unit(c(0,0,0,0), "cm"),
+          legend.text = element_text(size = 6),
+          legend.key.height =  unit(0.3, 'cm'))
+p_res <- ggplot() +
+    geom_sf(data = shape_data_l2_lm, aes(fill = resids),
+            colour = "transparent") +
+    scale_fill_gradientn(limits = c(-1,1),
+                         colours=col_grad_3,
+                         na.value = col_grad_3[3])+
+    theme(legend.position="bottom",
+          legend.title = element_blank(),
+          axis.text =  element_blank(),
+          axis.ticks = element_blank(),
+          plot.margin = unit(c(0,0,0,0), "cm"),
+          legend.text = element_text(size = 6),
+          legend.key.height =  unit(0.3, 'cm'))
+grid.arrange(arrangeGrob(p_dist,
+                         p_fit,
+                         p_res,
+                         nrow=1,
+                         widths = unit(c(0.5, 0.25, 0.25), "npc")))
+```
+
+
+### Emperical semi variogram
+```{r}
+
+shape_data_l2_dist <- as.data.frame(shape_data_l2_lm)
+coordinates(shape_data_l2_dist) <- ~LONG+LAT
+
+flat_var <- variogram(resids~1, shape_data_l2_dist)
+plot(flat_var)
+
+hscat(resids~1, shape_data_l2_dist, breaks=seq(0,5,0.5)) 
+```
+
+
+# Example plots
+I've included "plotly" plots. They are not relevant for the project, but they are interactive so allows us to have a closer look at the plots (zoom in, select, hover, etc).
+```{r}
+# Plot
+p1 <- ggplot() + geom_sf(data = shape_data_l1, aes(fill = Average_Price), colour = "white")
+#ggplotly(p1)
+p2 <- ggplot() + geom_sf(data = shape_data_l1, aes(fill = Average_Price_15Y), colour = "white")
+#ggplotly(p2)
+
+
+p3 <- ggplot() + geom_sf(data = shape_data_l2, aes(fill = Average_Price), colour = "white")
+#ggplotly(p3)
+p4 <- ggplot() + geom_sf(data = shape_data_l2, aes(fill = Average_Price_15Y), colour = "white")
+#ggplotly(p4)
+
+# Display
+grid.arrange(p1, p2, p3, p4,
+             nrow = 2)
+```
+
+
+```{r setup1, message=FALSE}
+library(dplyr)
+library(readr)
+library(naniar)
+library(lubridate)
+library(ggplot2)
+library(spdep)
+library(gstat)
+library(sf)
+library(cowplot)
+library(plotly)
+library(stringr)
+library(tidyr)
+library(ggpubr)
+library('viridis')
+```
+
+### Read CSV data and import/fix shape files
+
+```{r}
+data <- read_csv("Data/UK_avgpropertyprices.csv")
+data$Date <- as.Date(data$Date, "%d/%m/%Y")
+```
+
+The shape files need some cleaning. Region names need to match for Level
+1 and Level 2 requires two different shape files and including Northern
+Ireland. The column names are standardised for ease of use later.
+
+```{r}
+shape_l1 <- read_sf("Data/Auxiliary Data/International_Territorial_Level_1_(January_2021)_UK_BUC")
+# Fix region names
+shape_l1$ITL121NM <- gsub(" [(]England[])]", "", shape_l1$ITL121NM)
+shape_l1$ITL121NM[shape_l1$ITL121NM == "East"] <- "East of England"
+data$Region_Name[data$Region_Name == "West Midlands Region"] <- "West Midlands"
+# Read in level 2 shape files and fix column orders to match shape_l1
+shape_l2_1 <- read_sf("DAta/Auxiliary Data/MetCounties_(Dec_2018)_EN_BUC")
+shape_l2_1 <- shape_l2_1[, c(1:7,9,10,8,11)]
+shape_l2_2 <- read_sf("Data/Auxiliary Data/Counties_and_Unitary_Authorities_(December_2022)_UK_BUC")
+shape_l2_2 <- shape_l2_2[,c(1:3,5:11)]
+# Standardise column names
+sf_names <- names(shape_l1)
+sf_names[2:3] <- c("CODE", "NAME")
+names(shape_l1) <- sf_names
+names(shape_l2_1) <- sf_names
+names(shape_l2_2) <- sf_names
+# Consolidate into shape_l2 and add Northern Ireland
+shape_l2 <- rbind(shape_l2_1,
+                  shape_l2_2,
+                  shape_l1 %>% filter(NAME == "Northern Ireland") %>%
+                    mutate(CODE = "N92000001"))
+```
+
+### New variables - average and 15Y pct change
+
+Add new variables (overall average) as well as 15Y change for each
+variable.
+
+```{r}
+# Add average column
+data <- data %>% mutate(Average_Price =
+                          rowMeans(select(data, 4:7), na.rm = TRUE))
+# Get 15 year change in price
+date_last <- max(data$Date)
+date_15Y <- date_last - years(15)
+cols <- names(data)[4:8]
+fun_pctchange <- function(x){x/lag(x)-1}
+data <- data %>% filter(Date %in% c(date_last, date_15Y)) %>%
+          group_by(Area_Code) %>%
+          arrange(Date, .by_group = TRUE) %>%
+          mutate(across(all_of(cols), fun_pctchange, .names = "{col}_15Y"))
+data <- data %>% ungroup %>%
+  mutate(`highest_change` = names(.[,9:12])[max.col(.[,9:12])],
+         `lowest_change` = names(.[,9:12])[max.col(1/.[,9:12])])
+```
+
+### Create shape data files
+
+Combine shape files and data files so that they can be plotted.
+
+```{r}
+# Filter to last date
+data_latest <- data %>% filter(Date == date_last)
+# Get level 1 / level 2 data
+codes_l1 <- c("E12", "S92", "W92", "N92")
+data_l1 <- data_latest %>%
+  filter(substr(Area_Code, 1, 3) %in% codes_l1) %>%
+  arrange(Region_Name)
+codes_l2 <- c("E06", "E09", "E10", "E11", "S12", "W06", "N92")
+data_l2 <- data_latest %>%
+  filter(substr(Area_Code, 1, 3) %in% codes_l2) %>%
+  arrange(Area_Code)
+# Add data to shape files
+shape_l1 <- shape_l1 %>% arrange(NAME)
+shape_data_l1 <- cbind(shape_l1,
+                       data_l1[,4:ncol(data_l1)])
+shape_l2 <- shape_l2 %>% arrange(CODE) %>%
+  filter(CODE %in% data_l2$Area_Code)
+shape_data_l2 <- cbind(shape_l2,
+                       data_l2[,4:ncol(data_l2)])
+```
+
+# Example plots
+
+These plots show the average price change during the fifteen last years
+per property types. We observe that for each type of property, London
+has the highest growth rate. Most of the regions have their prices
+increased for each property type except for northern ireland where the
+prices decrease
+
+```{r}
+p1 <- ggplot() + 
+  geom_sf(data = shape_data_l1, aes(fill = Flat_Average_Price_15Y)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+  labs(title = "Growth rate between 2007 and 2022 for flat")
+p3 <- ggplot() + 
+  geom_sf(data = shape_data_l1, aes(fill = Terraced_Average_Price_15Y)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+  labs(title = "Growth rate between 2007 and 2022 for terraced")
+p4 <- ggplot() + 
+  geom_sf(data = shape_data_l1, aes(fill = Detached_Average_Price_15Y)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+    labs(title = "Growth rate between 2007 and 2022 for detached")
+p5 <- ggplot() + 
+  geom_sf(data = shape_data_l1, aes(fill = Semi_Detached_Average_Price_15Y)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red") +
+  labs(title = "Growth rate between 2007 and 2022 for semi detached")
+p1
+p3
+p4
+p5
+```
+
+Here, I plotted a box plot of the average price for each property type
+for each of the countries in United Kingdom: England, Wales, Scotland
+and Northern Ireland. We observe that for each type of property, England
+has highest prices. however the ranking of the other 3 differs based on
+the type of property.
+
+```{r}
+areas_of_interest = c('E12', 'S92', 'W92', 'N92')
+df_subset <- data %>% filter(year(Date) == 2022, str_detect(Area_Code, paste0("^", areas_of_interest, collapse = "|")))
+df_subset$Area_Start <- substr(df_subset$Area_Code, 1, 3)
+rainbow_colors <- rainbow(n = length(unique(df_subset$Area_Start)))
+df_subset$country <- ifelse(df_subset$Area_Start == "E12", "England",
+                     ifelse(df_subset$Area_Start == "W92", "Wales",
+                            ifelse(df_subset$Area_Start == "S92", "Scotland",
+                                   ifelse(df_subset$Area_Start == "N92", "Ireland", NA))))
+p1 <- ggplot(df_subset, aes(x = country, y = log(Flat_Average_Price), fill = country)) +
+   geom_boxplot() +
+  scale_fill_manual(values = rainbow_colors) +
+  labs(title = "Flat average price per country")
+p2 <- ggplot(df_subset, aes(x = country, y = log(Terraced_Average_Price), fill = country)) +
+   geom_boxplot() +
+  scale_fill_manual(values = rainbow_colors) +
+  labs(title = "Terraced average price per country")
+p3 <- ggplot(df_subset, aes(x = country, y = log(Detached_Average_Price), fill = country)) +
+   geom_boxplot() +
+  scale_fill_manual(values = rainbow_colors) +
+  labs(title = "Detached average price per country")
+p4 <- ggplot(df_subset, aes(x = country, y = log(Semi_Detached_Average_Price), fill = country)) +
+   geom_boxplot() +
+  scale_fill_manual(values = rainbow_colors) +
+  labs(title = "Semi Detached average price per country")
+p1
+p2
+p3
+p4
+```
+
+Box plot of Average prices all combined for all level 1 regions. We
+observe clearly that London has the highest prices, its lower bounds is
+higher than the highest bound in any other regions.
+
+(For the report, take the full image not the one that is shown on the
+notebook)
+
+```{r}
+#build a dataframe where there is column property type
+df_long <- df_subset %>%
+  pivot_longer(cols = c(Terraced_Average_Price, Semi_Detached_Average_Price, Detached_Average_Price, Flat_Average_Price), 
+               names_to = "type_of_property", 
+               values_to = "price")
+df_property <- df_long %>%
+  select(Date, Region_Name, Area_Code, Area_Start, type_of_property, price)
+df_region <- df_property %>% 
+  filter(Area_Start == "E12")
+rainbow_colors <- viridis(n = length(unique(df_property$Region_Name)))
+df_property$country <- ifelse(df_property$Area_Start == "E12", "England",
+                     ifelse(df_property$Area_Start == "W92", "Wales",
+                            ifelse(df_property$Area_Start == "S92", "Scotland",
+                                   ifelse(df_property$Area_Start == "N92", "Ireland", NA))))
+ggplot(df_property, aes(x = country, y = log(price), fill = Region_Name)) +
+  geom_boxplot(width = 1) +
+  scale_fill_manual(values = rainbow_colors) +
+  labs(title = " Box PLots Average prices for each region in United Kingdom")
+```
+
+Here we plotted the average prices per property types of the 9
+statistical regions in 2022. We observed that Detached properties are
+more expensive than the other types of properties in England.
+
+```{r}
+#dataframe filtered with just england and type of property as a column feature
+df_region <- df_property %>% 
+  filter(Area_Start == "E12")
+rainbow_colors <- rainbow(n = length(unique(df_property$type_of_property)))
+ggplot(df_region, aes(x = type_of_property, y = log(price), fill = type_of_property)) +
+  geom_boxplot() +
+  scale_fill_manual(values = rainbow_colors) +
+  labs(title = "England 9 statistical regions average prices for each property type")
+```
+
+Here, we plotted the distribution in england of the average price for
+each property type. We observe that detached has higher prices and flat
+has lower prices
+
+```{r}
+df_england <- df_subset %>% filter(str_starts(Area_Start, "E12"))
+p1 <- ggplot(df_england, aes(x = log(Flat_Average_Price))) +
+  geom_histogram(aes(fill = "Flat"), binwidth = 0.1, position = "stack") +
+  geom_histogram(aes(x = log(Terraced_Average_Price),fill = "Terraced"), binwidth = 0.1, position = "stack") +
+  geom_histogram(aes(x = log(Detached_Average_Price),fill = "Detached"), binwidth = 0.1, position = "stack") +
+  geom_histogram(aes(x = log(Semi_Detached_Average_Price),fill = "Semi-Detached"), binwidth = 0.1, position = "stack") +
+  labs(title = "Stacked Histogram of Log-Transformed Price Variables in England", x = "Log Price", y = "Count", fill = "Property Type")
+p1
+```
+
+Density plot shows better the distribution per property type
+
+```{r}
+df_england <- df_subset %>% filter(str_starts(Area_Start, "E12"))
+p1 <- ggplot(df_england, aes(x = log(Flat_Average_Price))) +
+  geom_density(aes(fill = "Flat"),alpha = 0.4) +
+  geom_density(aes(x = log(Terraced_Average_Price),fill = "Terraced"), alpha = 0.4) +
+  geom_density(aes(x = log(Detached_Average_Price),fill = "Detached"), alpha = 0.4) +
+  geom_density(aes(x = log(Semi_Detached_Average_Price),fill = "Semi-Detached"), alpha = 0.4) +
+  labs(title = "Stacked Histogram of Log-Transformed Price Variables in England", x = "Log Price", y = "Count", fill = "Property Type")
+p1
+```
+
+Here we plotted the average prices per property types of the 3 other
+countries Wales, Scotland and Ireland and observe that again flat has
+the lowest price and detached the highest
+
+```{r}
+df_region <- df_property %>% 
+  filter(Area_Start != "E12")
+rainbow_colors <- rainbow(n = length(unique(df_property$type_of_property)))
+ggplot(df_region, aes(x = type_of_property, y = log(price), fill = type_of_property)) +
+  geom_boxplot() +
+  scale_fill_manual(values = rainbow_colors) +
+  labs(title = "Scotland, Wales and Northern Ireland average prices for each property type")
+```
+
+We plotted a map of United with the prices of each property type per
+region and observed that in London, it is the most expensive for every
+property type
+
+```{r}
+p1 <- ggplot() + 
+  geom_sf(data = shape_data_l1, aes(fill = Flat_Average_Price)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red")
+p2 <- ggplot() + 
+  geom_sf(data = shape_data_l1, aes(fill = Detached_Average_Price)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red")
+p3 <- ggplot() + 
+  geom_sf(data = shape_data_l1, aes(fill = Terraced_Average_Price)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red")
+p4 <- ggplot() + 
+  geom_sf(data = shape_data_l1, aes(fill = Semi_Detached_Average_Price)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red")
+# ggarrange(p1, p2, p3, p4, 
+#           labels = c("A", "B", "C", 'D'),
+#           ncol = 2, nrow = 2)
+p1
+p2
+p3
+p4
+```
+
+Here, we used scatter plot to check for each property type in england
+which of the nine statistical region has the highest prices..
+Interestingly the ranking is preserved for each property types.
+
+```{r}
+library(forcats)
+df_sorted <- df_england %>% arrange(Flat_Average_Price)
+p1 <- ggplot(df_sorted, aes(x = Region_Name, y = log(Flat_Average_Price), color = Region_Name))+
+ geom_point(size = 3) +
+  labs(title = "Scatter Plot of Log-Transformed Flat Prices", x = "Region Name", y = "Log Price", color = "Region Name")
+df_sorted <- df_england %>% arrange(log(Terraced_Average_Price))
+p2 <- ggplot(df_sorted, aes(x = Region_Name, y = log(Terraced_Average_Price), color = Region_Name))+
+ geom_point(size = 3) +
+  labs(title = "Scatter Plot of Log-Transformed Terraced Prices", x = "Region Name", y = "Log Price", color = "Region Name")
+df_sorted <- df_england %>% arrange(log(Detached_Average_Price))
+p3 <- ggplot(df_sorted, aes(x = Region_Name, y = log(Detached_Average_Price), color = Region_Name))+
+ geom_point(size = 3) +
+  labs(title = "Scatter Plot of Log-Transformed Detached Prices", x = "Region Name", y = "Log Price", color = "Region Name")
+df_sorted <- df_england %>% arrange(log(Semi_Detached_Average_Price))
+p4 <- ggplot(df_sorted, aes(x = Region_Name, y = log(Semi_Detached_Average_Price), color = Region_Name))+
+ geom_point(size = 3) +
+  labs(title = "Scatter Plot of Log-Transformed Semi Detached Prices", x = "Region Name", y = "Log Price", color = "Region Name")
+p1
+p2
+p3
+p4
+```
+
+Here, it is just a map that focuses on england regions but i don t think
+it is relevant
+
+```{r}
+names = c('Scotland', 'Wales', "Northern Ireland")
+shape_data_filtered <- shape_data_l1
+for (region_name in names) {
+  # Select rows that match the specified region name
+  region_rows <- shape_data_filtered[shape_data_filtered$NAME == region_name, ]
+  
+  # Set all price columns for the selected rows to NA
+  price_cols <- grepl("Price", names(region_rows))
+  region_rows[, price_cols] <- NA
+  
+  # Replace the original rows in shape_data_filtered with the modified rows
+  shape_data_filtered[shape_data_filtered$NAME == region_name, price_cols] <- NA
+}
+p1 <- ggplot() + 
+  geom_sf(data = shape_data_filtered, aes(fill = Flat_Average_Price)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red")
+p2 <- ggplot() + 
+  geom_sf(data = shape_data_filtered, aes(fill = Detached_Average_Price)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red")
+p3 <- ggplot() + 
+  geom_sf(data = shape_data_filtered, aes(fill = Terraced_Average_Price)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red")
+p4 <- ggplot() + 
+  geom_sf(data = shape_data_filtered, aes(fill = Semi_Detached_Average_Price)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red")
+# ggarrange(p1, p2, p3, p4, 
+#           labels = c("A", "B", "C", 'D'),
+#           ncol = 2, nrow = 2)
+p1
+p2
+p3
+p4
+```
+
+Here we plotted the map of the three countries ireland Scotland and
+Wales for each property type and observed that scotland and wales are
+more expensive for detached semi and terraced than ireland. However for
+flats, scotland is less expensive and equivalent to ireland.
+
+```{r}
+names = c('East Midlands', 'East of England', "London", 'North East', 'North West','South East', 'South West', 'West Midlands', 'Yorkshire and The Humber')
+shape_data_filtered <- shape_data_l1
+for (region_name in names) {
+  # Select rows that match the specified region name
+  region_rows <- shape_data_filtered[shape_data_filtered$NAME == region_name, ]
+  
+  # Set all price columns for the selected rows to NA
+  price_cols <- grepl("Price", names(region_rows))
+  region_rows[, price_cols] <- NA
+  
+  # Replace the original rows in shape_data_filtered with the modified rows
+  shape_data_filtered[shape_data_filtered$NAME == region_name, price_cols] <- NA
+}
+my_palette <- colorRampPalette(c("pink","white", "red"))
+p1 <- ggplot() + 
+  geom_sf(data = shape_data_filtered, aes(fill = Flat_Average_Price)) +
+  scale_fill_gradientn(colors = my_palette(20), breaks = seq(100000, 400000, 10000)) +
+  labs(title = "Average Price of Flats")
+p2 <- ggplot() + 
+  geom_sf(data = shape_data_filtered, aes(fill = Detached_Average_Price)) +
+  scale_fill_gradientn(colors = my_palette(20), breaks = seq(100000, 400000, 10000)) +
+  labs(title = "Average Price of Detached Houses")
+p3 <- ggplot() + 
+  geom_sf(data = shape_data_filtered, aes(fill = Terraced_Average_Price)) +
+  scale_fill_gradientn(colors = my_palette(20), breaks = seq(100000, 400000, 10000)) +
+  labs(title = "Average Price of Terraced Houses")
+p4 <- ggplot() + 
+  geom_sf(data = shape_data_filtered, aes(fill = Semi_Detached_Average_Price)) +
+  scale_fill_gradientn(colors = my_palette(20), breaks = seq(100000, 400000, 10000)) +
+  labs(title = "Average Price of Semi-Detached Houses")
+p1
+p2
+p3
+p4
+```
+
+Here we looked at the highest and lowest change in property type in the
+last 15years and observed that detached had the highest change in most
+places and flat had the lowest change in most places
+
+```{r}
+unique_properties <- c('Detached_Average_Price_15Y', 'Semi_Detached_Average_Price_15Y', 'Flat_Average_Price_15Y', 'Terraced_Average_Price_15Y')
+my_colors <- c("red", "green", "blue", "purple")
+pB <- ggplot() +
+  geom_sf(data = shape_data_l1, aes(fill = highest_change),
+                         colour = "white") +
+  scale_fill_manual(values = setNames(my_colors, unique_properties)) +
+  labs(title = "Highest Percentage Change by Property Type")
+pC <- ggplot() +
+  geom_sf(data = shape_data_l1, aes(fill = lowest_change),
+                         colour = "white") +
+  scale_fill_manual(values = setNames(my_colors, unique_properties)) +
+  labs(title = "Lowest Percentage Change by Property Type")
+pB
+pC
+```
+
+Here we plotted a map london and its boroughs to measure how the
+averages prices were spread for each property types and observed that it
+was mostly in the center that the prices were highly expensive.
+
+```{r}
+shape_data_london <- shape_data_l2 %>% filter(substr(CODE, 1, 3) == "E09")
+my_palette <- c("white", "pink", "red")
+pD_flat <- ggplot() +
+  geom_sf(data = shape_data_london, aes(fill = Flat_Average_Price_15Y)) +
+  scale_fill_gradientn(colors = my_palette,  breaks = seq(0, 2, 0.1)) +
+  labs(title = "Average Price of Flats in London (15-Year Trend)")
+pD_detached <- ggplot() +
+  geom_sf(data = shape_data_london, aes(fill = Detached_Average_Price_15Y)) +
+  scale_fill_gradientn(colors = my_palette,  breaks = seq(0, 2, 0.1)) +
+  labs(title = "Average Price of Detached Houses in London (15-Year Trend)")
+pD_terraced <- ggplot() +
+  geom_sf(data = shape_data_london, aes(fill = Terraced_Average_Price_15Y)) +
+  scale_fill_gradientn(colors = my_palette,  breaks = seq(0, 2, 0.1)) +
+  labs(title = "Average Price of Terraced Houses in London (15-Year Trend)")
+pD_semi <- ggplot() +
+  geom_sf(data = shape_data_london, aes(fill = Semi_Detached_Average_Price_15Y)) +
+  scale_fill_gradientn(colors = my_palette,  breaks = seq(0, 2, 0.1)) +
+  labs(title = "Average Price of Semi-Detached Houses in London (15-Year Trend)")
+pD_flat
+pD_detached
+pD_terraced
+pD_semi
+```
+
+
+```{r}
+data <- read_csv("Data/UK_avgpropertyprices.csv")
+data$Date <- as.Date(data$Date, "%d/%m/%Y")
+```
+
+Time series plot of the two variables chosen: Detached Average price in Wales and London. Although London prices are higher, both time series show similar growth throughout the years
+
+```{r}
+time_series_df <- subset(data, Region_Name %in% c("Wales", "London"))
+wales_df <- subset(time_series_df, Region_Name == 'Wales')
+london_df <- subset(time_series_df, Region_Name == 'London')
+ggplot(data = wales_df, aes(x = Date, y = log(Detached_Average_Price))) +
+  geom_line(color = 'blue') +
+  geom_line(data = london_df, aes(x = Date, y = log(Detached_Average_Price)), 
+            color = 'red') +
+  labs(title = "Detached Price Time Series for Wales", x = "Date", 
+       y = "Detached   Average Price")
+```
+
+Two plots of the distribution of the two variables. For wales, it shows a bimodal distribution but for london. it seems to show three modes
+
+```{r}
+ggplot(wales_df, aes(x = log(Detached_Average_Price))) +
+  geom_histogram(binwidth = 0.05, fill = 'blue', alpha = 0.4) +
+  geom_histogram(aes(x = log(Detached_Average_Price)), london_df, fill = 'red', alpha = 0.4) +
+  labs(title = "Distribution of Detached House Prices in Wales and London")
+```
+
+```{r}
+ggplot(wales_df, aes(x = log(Detached_Average_Price))) +
+  geom_density(binwidth = 0.05, fill = 'blue', alpha = 0.4) +
+  geom_density(aes(x = log(Detached_Average_Price)), london_df, fill = 'red', alpha = 0.4) +
+  labs(title = "Distribution of Detached House Prices in Wales and London")
+```
+
+Detached Average price using box plot per five years for Wales. Between 2000 and 2004 there is a bigger variability of prices. The prices overall increased over time but the growth started to decrease between 2005 and 2009.
+
+```{r}
+wales_df$Year <- format(as.Date(wales_df$Date), "%Y")
+wales_df$Year_Group <- cut(as.numeric(wales_df$Year), breaks = seq(1994, 2025, 5), labels = c('1995-1999',"2000-2004", "2005-2009", "2010-2014", "2015-2019", "2020-2022"))
+my_colors <- colorRampPalette(c("pink", "yellow"))(6)
+ggplot(data = wales_df, aes(x = Year_Group, y = log(Detached_Average_Price), fill = Year_Group)) +
+  geom_boxplot() +
+  scale_fill_manual(values = my_colors)+
+  labs(title = "Evolution of Detached House Prices in Wales by 5-Year Group")
+```
+
+Detached Average price using box plot per five years for London. London prices increased almost linearly thoughout the years. Between 1995 and 2004 their was a big increase in the prices. After 2004 the prices continue to increase but slower. No stagnation noticeable during the crisis.
+
+```{r}
+london_df$Year <- format(as.Date(london_df$Date), "%Y")
+london_df$Year_Group <- cut(as.numeric(london_df$Year), breaks = seq(1994, 2025, 5), labels = c('1995-1999',"2000-2004", "2005-2009", "2010-2014", "2015-2019", "2020-2022"))
+my_colors <- colorRampPalette(c("pink", "yellow"))(6)
+ggplot(data = london_df, aes(x = Year_Group, y = log(Detached_Average_Price), fill = Year_Group)) +
+  geom_boxplot() +
+  scale_fill_manual(values = my_colors) +
+  labs(title = "Evolution of Detached House Prices in London by 5-Year Group")
+```
+
+This box plot shows the same thing as above but on the same figure. It is better to show this one and not the other two.
+
+```{r}
+ggplot(data = wales_df, aes(x = Year_Group, y = log(Detached_Average_Price), fill = Region_Name)) +
+  geom_boxplot() +
+  geom_boxplot(data = london_df, aes(x = Year_Group, y = log(Detached_Average_Price), fill = Region_Name)) +
+  labs(title = "Evolution of Detached House Prices in London and Wales by 5-Year Group")
+```
+
+Monthly percentage change in price in wales plot per year
+
+```{r}
+wales_df <- wales_df %>%
+  arrange(Date) %>%                          # sort the data by date
+  mutate(Monthly_Pct_Change = (Detached_Average_Price / lag(Detached_Average_Price, default = first(Detached_Average_Price))) - 1)
+#modify here is you want a plot of another year
+year = '2022'
+df_year <- wales_df %>% filter(format(Date, "%Y") == year) 
+# group the data by month and calculate the average monthly percentage change
+df_year_monthly <- df_year %>%
+  group_by(Month = format(Date, "%m")) 
+ggplot(data =  df_year_monthly, aes(x = factor(Month), y = Monthly_Pct_Change * 100, group = 1)) +
+  geom_point(color = 'blue') +
+  geom_line(color = 'blue')
+```
+
+Monthly percentage change in price in london plot per year
+
+```{r}
+london_df <- london_df %>%
+  arrange(Date) %>%                          # sort the data by date
+  mutate(Monthly_Pct_Change = (Detached_Average_Price / lag(Detached_Average_Price, default = first(Detached_Average_Price))) - 1)
+#modify here is you want a plot of another year
+year = '2022'
+df_year_ldn <- london_df %>% filter(format(Date, "%Y") == year) 
+# group the data by month and calculate the average monthly percentage change
+df_year_monthly_ldn <- df_year_ldn %>%
+  group_by(Month = format(Date, "%m")) 
+ggplot(data =  df_year_monthly_ldn, aes(x = factor(Month), y = Monthly_Pct_Change * 100, group = 1)) +
+  geom_point(color = 'blue') +
+  geom_line(color = 'blue')
+```
+
+Here, we plotted the month percentage change in detached price for wales for different years. We see that the biggest increase in price is during the summer months june july august.
+
+```{r}
+# filter the data for the desired years
+df_years <- wales_df %>% 
+  filter(format(Date, "%Y") %in% c('1995',"2000", "2005", "2010", "2015", "2020"))
+# group the data by year and month and calculate the average monthly percentage change
+df_years_monthly <- df_years %>%
+  group_by(Year = format(Date, "%Y"), Month = format(Date, "%m")) %>%
+  summarize(Detached_Average_Price = mean(Detached_Average_Price)) %>%
+  arrange(Year, Month) %>%
+  mutate(Monthly_Pct_Change = 100 * (Detached_Average_Price / lag(Detached_Average_Price, default = first(Detached_Average_Price)) - 1))
+# plot the monthly percentage changes for each year on the same plot
+ggplot(data = df_years_monthly, aes(x = factor(Month), y = Monthly_Pct_Change, group = Year, color = Year)) +
+  geom_point() +
+  geom_line()
+```
+
+In london, monthly percentage change increase during summer month and also in april based on the following plot
+
+```{r}
+# filter the data for the desired years
+df_years_ldn <- london_df %>% 
+  filter(format(Date, "%Y") %in% c('1995',"2000", "2005", "2010", "2015", "2020"))
+# group the data by year and month and calculate the average monthly percentage change
+df_years_monthly_ldn <- df_years_ldn %>%
+  group_by(Year = format(Date, "%Y"), Month = format(Date, "%m")) %>%
+  summarize(Detached_Average_Price = mean(Detached_Average_Price)) %>%
+  arrange(Year, Month) %>%
+  mutate(Monthly_Pct_Change = 100 * (Detached_Average_Price / lag(Detached_Average_Price, default = first(Detached_Average_Price)) - 1))
+# plot the monthly percentage changes for each year on the same plot
+ggplot(data = df_years_monthly_ldn, aes(x = factor(Month), y = Monthly_Pct_Change, group = Year, color = Year)) +
+  geom_point() +
+  geom_line()
+```
