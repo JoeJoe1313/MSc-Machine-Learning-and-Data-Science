@@ -1,0 +1,144 @@
+---
+title: "Assessment 1"
+author: "Joana Levtcheva, CID 01252821"
+output:  html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Question 1
+
+### Part a
+
+First, let's do the QQ-plots of samples with size 10, 50, 100, 250, 1000, and 10000 both drawn from a normal distribution.
+
+```{r Fig1, fig.height=10, fig.width=15}
+par(mfrow=c(2,3))
+set.seed(1)
+for (i in c(10, 50, 100, 250, 1000, 10000)) {
+  qqplot(rnorm(i) , rnorm(i) )
+  mtext(paste("n = ", i))
+}
+```
+
+Now, let's do the QQ-plots of samples with size 10, 50, 100, 250, 1000, and 10000 drawn from a normal distribution and a Student's t-distribution.
+
+```{r Fig2, fig.height=10, fig.width=15}
+par(mfrow=c(2,3))
+set.seed(1)
+for (i in c(10, 50, 100, 250, 1000, 10000)) {
+  qqplot(rnorm(i) , rt(i, df = 7))
+  mtext(paste("n = ", i))
+}
+```
+
+We can notice that as the for small sample sizes n = 10, 50, 10, we can hardly tell the difference between the Normal and the Student's t-distribution. As the sample size increase we can notice that the QQ plot for the Normal distributuion 'stabilises' and is approximately a line, whereas in the Student's distribution we can observe deviations from the straight, which signals the heavier tails of the Student's t-distribution compared to the Normal distribution. Therefore, we can conclude that as n increases the accuracy of judging whether the observed data is distributed according to the proposed distribution becomes higher.
+
+Let's demonstrate the above conclusion by showing how 'unstable' the plots are for a small sample drawn from the Normal distribution with size such as n = 50:
+
+```{r Fig3, fig.height=10, fig.width=15}
+set.seed(1)
+par(mfrow=c(2,3))
+for (i in (1:6)) {
+  qqplot(rnorm(50), rnorm(50))
+  mtext("n = 50")
+}
+```
+
+In comparison with a big sample drawn from the Normal distribution size such as n = 5000:
+
+```{r Fig4, fig.height=5, fig.width=15}
+set.seed(1)
+par(mfrow=c(1,3))
+for (i in (1:3)) {
+  qqplot(rnorm(5000), rnorm(5000))
+  mtext("n = 5000")
+}
+```
+
+### Part b
+
+There is a greater empirical probability density in sample in the left tail, the corresponding quantiles for the empirical sample are higher for these quantiles below 50% than the corresponding quantiles of the theoretical distribution.On the opposite right tail, the values of the quantiles above 50% in the sample are less than the corresponding theoretcial quantiles. This means the observed data has no skew and its distribution is platykurtic compared to the Gaussian distribution, meaning it has lighter tails and negative excess kurtosis.
+
+## Question 2
+
+Data summary: 
+
+```{r}
+library(readr)
+travel_times <- read_csv("travel-times.csv", show_col_types = FALSE)
+summary(travel_times)
+```
+
+### Q2 a
+
+Data type for each variable in the dataset using the NOIR classification:
+
+- Nominal: DayOfWeek, GoingTo
+- Interval: Date
+- Ratio: Distance, MaxSpeed, AvgSpeed, TotalTime: the zero value for each of these variables is meaningful, and it is therefore valid to calculate ratios of different observations of each of these variables
+
+### Q2 b
+
+From all of the data columns only AvgSpeed has missing data:
+
+```{r}
+library(naniar)
+
+vis_miss(travel_times)
+```
+
+Judging from the plot below MaxSpeed we can assume that the type of missing data is most likely MAR. 
+
+- The first example for that is when looking at the MaxSpeed for the missing data - the missing data is always above the median of the available data, showing that only when the MaxSpeed is above a certain threshold we can have missing data in AvgSpeed.
+
+- Another example of the MAR type is that we have a variable percenatge of data missing depending on DayOfWeek, and direction combination (GoingTo). For instance, on Friday going home and Monday going to work, we have very few missing data points. This case, however, is not as clear as the first one because we don't have much data and there might be noise in the plots.
+
+```{r}
+library(ggplot2)
+ggplot(travel_times, 
+       aes(x = AvgSpeed, 
+           y = MaxSpeed)) + 
+  geom_miss_point() + facet_wrap(~DayOfWeek+GoingTo)
+```
+
+To validate our conclusion we can compute the percentage of missing AvgSpeed values by DayOfWeek and GoingTo: 
+
+```{r}
+library(dplyr)
+
+travel_times %>%
+  group_by(DayOfWeek, GoingTo) %>%
+  miss_var_summary() %>%
+  filter(variable == "AvgSpeed")
+```
+
+### Part c
+
+There could be many ways for imputing missing data. One as mentioned in the problem statement is just taking the sample mean for the entire column. A slightly more complex version of this method is grouping the data by certain qualities, for example day of week or dierction, and then fillinf the missing data with the mean of these groups. 
+
+However, in our case there is an obvious way to not just find a good way to impute the data but to fill the data with its actual value. This can be done by the following formula: Distance * 60 / TotalTime. We have that the distance is equal to velocity * time, in our case we notice that TotalTime is given in minutes and that's why we have the multiplication by 60. 
+
+This is an anylytical, exact approach, so we should not be concerned about how good and (un)biased our estimation is. We are working with not too small or too big numbers, and they are up to the first decimal point, so errors from computation are not expected to bias the calculation. It is good to check if we are not going to divide by 0:
+
+```{r}
+summary(travel_times$TotalTime)
+```
+
+The minimum value of TotalTime is 28.2 so there should not be a problem.
+
+### Part d
+
+Computing the modified Z-scores for the same data x and showing the data rows corresponding to the outliers:
+
+```{r}
+med <- median(travel_times$TotalTime)
+MAD <- mad(travel_times$TotalTime, constant = 1)
+m <- 0.6745 * (travel_times$TotalTime - med) / MAD
+
+travel_times$m <- m > 3.5
+select(travel_times %>%
+  filter(m), -m)
+```
