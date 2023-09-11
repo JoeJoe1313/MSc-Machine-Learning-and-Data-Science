@@ -1,0 +1,644 @@
+---
+title: "Assessment 5"
+author: "Joana Levtcheva, CID 01252821"
+header-includes: \usepackage{xcolor}
+output:
+  pdf_document: default
+  html_document: default
+---
+
+### EDA
+
+The analysis will be structured around two authors Jane Austen and Agatha Christie for two of their books, respectively Sense and Sensibility, Pride and Prejudice, and The Mysterious Affair at Styles, The Murder on the Links.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, cache = FALSE)
+```
+
+```{r}
+library(stringr)
+library(readr)
+library(dplyr)
+library(tidytext)
+library(ggplot2)
+library(ggpubr)
+library(tidyverse)
+library(factoextra)
+library(sjmisc)
+library(Rtsne)
+library(patchwork)
+library(ggcorrplot)
+library(ggwordcloud)
+library(data.table)
+```
+
+```{r load english stop words}
+data(stop_words)
+```
+
+```{r}
+read_book_df <- function(file_name) {
+  file_path <- paste("/Users/ljoana/Desktop/EDAV/final_project/ProjGutenberg/", file_name, sep = "")
+  str_f <- read_file(file_path)
+  
+  first_match <- str_locate(str_f, "\\*\\*\\*\\s(.+)\\s\\*\\*\\*")[2] + 1
+  latest <- substr(str_f, first_match, nchar(str_f))
+  second_match <- str_locate(latest, "\\*\\*\\*\\s(.+)\\s\\*\\*\\*")[1] - 1
+  cleanest <- substr(latest, 1, second_match)
+  
+  df <- read.table(text = cleanest, sep = "\n")
+  file_name_end <- str_locate(file_name, "(^\\w+(?=\\.))")[2]
+  df$book <- substr(file_name, 1, file_name_end)
+  
+  return(df)
+}
+
+clen_df_no_sw <- function(df) {
+  book_words_no_sw <- df %>%
+    unnest_tokens(word, V1, token = "words") %>% # tokenize and converts to tidy format
+    filter(str_detect(word, "^[a-z']+$"),
+           !word %in% stop_words$word)
+  
+  return(book_words_no_sw)
+}
+
+clean_df_all <- function(df) {
+  book_words_sw <- df %>%
+    unnest_tokens(word, V1, token = "words") %>% # tokenize and converts to tidy format
+    filter(str_detect(word, "^[a-z']+$"))
+  
+  return(book_words_sw)
+}
+
+word_counts <- function(df) {
+  word_counts <- df %>% 
+    group_by(word, book) %>% 
+    summarise(total_count=n(), .groups = 'drop')
+}
+
+plot_bars <- function(df,first_param) {
+  #f_df <- filter(df, total_count > first_param)
+  f_df <- arrange(df, desc(total_count)) %>%
+    top_n(10)
+  
+  f_df$word <- factor(f_df$word, levels = f_df$word[order(f_df$total_count)])
+
+  return(ggplot(data = f_df, aes(x=word, y=total_count)) +
+    geom_bar(stat="identity") +
+    coord_flip())
+}
+```
+
+Our first attempt is to do analysis with excluding the stop words.
+
+After that, the results ... so the analysis is repeated without removing the stop words.
+
+Top 10 words bar plot 
+
+```{r Fig1, fig.height=5, fig.width=10}
+dickens_98 <- "pg161.txt"
+dickens_98_df <- read_book_df(dickens_98)
+
+dickens_98_clen_df_no_sw <- clen_df_no_sw(dickens_98_df)
+dickens_98_clen_df_no_sw_word_counts <- word_counts(dickens_98_clen_df_no_sw)
+dickens_98_no_sw_bar <- plot_bars(dickens_98_clen_df_no_sw_word_counts) + ggtitle("Sense and Sensibility") + theme(plot.title = element_text(hjust = 0.5)) 
+
+dickens_98_clean_df_all <- clean_df_all(dickens_98_df)
+dickens_98_clean_df_all_word_counts <- word_counts(dickens_98_clean_df_all)
+dickens_98_all_bar <- plot_bars(dickens_98_clean_df_all_word_counts)
+
+#ggarrange(dickens_98_no_sw_bar, dickens_98_all_bar, widths=c(1,1))
+```
+
+
+```{r Fig2, fig.height=5, fig.width=10}
+dickens_1400 <- "pg1342.txt"
+dickens_1400_df <- read_book_df(dickens_1400)
+
+dickens_1400_clen_df_no_sw <- clen_df_no_sw(dickens_1400_df)
+dickens_1400_clen_df_no_sw_word_counts <- word_counts(dickens_1400_clen_df_no_sw)
+dickens_1400_no_sw_bar <- plot_bars(dickens_1400_clen_df_no_sw_word_counts) + ggtitle("Pride and Prejudice") + theme(plot.title = element_text(hjust = 0.5)) 
+
+dickens_1400_clean_df_all <- clean_df_all(dickens_1400_df)
+dickens_1400_clean_df_all_word_counts <- word_counts(dickens_1400_clean_df_all)
+dickens_1400_all_bar <- plot_bars(dickens_1400_clean_df_all_word_counts)
+
+#ggarrange(dickens_1400_no_sw_bar, dickens_1400_all_bar, widths=c(1,1))
+```
+
+```{r Fig3, fig.height=5, fig.width=10}
+christie_863 <- "pg863.txt"
+christie_863_df <- read_book_df(christie_863)
+
+christie_863_clen_df_no_sw <- clen_df_no_sw(christie_863_df)
+christie_863_clen_df_no_sw_word_counts <- word_counts(christie_863_clen_df_no_sw)
+christie_863_no_sw_bar <- plot_bars(christie_863_clen_df_no_sw_word_counts) + ggtitle("The Mysterious Affair at Styles") + theme(plot.title = element_text(hjust = 0.5)) 
+
+christie_863_clean_df_all <- clean_df_all(christie_863_df)
+christie_863_clean_df_all_word_counts <- word_counts(christie_863_clean_df_all)
+christie_863_all_bar <- plot_bars(christie_863_clean_df_all_word_counts)
+
+#ggarrange(christie_863_no_sw_bar, christie_863_all_bar, widths=c(1,1))
+```
+
+```{r Fig4, fig.height=5, fig.width=10}
+christie_58866 <- "pg58866.txt"
+christie_58866_df <- read_book_df(christie_58866)
+
+christie_58866_clen_df_no_sw <- clen_df_no_sw(christie_58866_df)
+christie_58866_clen_df_no_sw_word_counts <- word_counts(christie_58866_clen_df_no_sw)
+christie_58866_no_sw_bar <- plot_bars(christie_58866_clen_df_no_sw_word_counts) + ggtitle("The Murder on the Links") + theme(plot.title = element_text(hjust = 0.5)) 
+
+christie_58866_clean_df_all <- clean_df_all(christie_58866_df)
+christie_58866_clean_df_all_word_counts <- word_counts(christie_58866_clean_df_all)
+christie_58866_all_bar <- plot_bars(christie_58866_clean_df_all_word_counts)
+
+#ggarrange(christie_58866_no_sw_bar, christie_58866_all_bar, widths=c(1,1))
+```
+
+```{r Fig22, fig.height=10, fig.width=20, include=FALSE}
+#ggarrange(dickens_98_no_sw_bar, dickens_1400_no_sw_bar, christie_863_no_sw_bar, christie_58866_no_sw_bar, ncol=4)
+
+layoutplot <- "
+efgh
+abcd"
+
+plotlist <- list(
+  e= dickens_98_no_sw_bar, f=dickens_1400_no_sw_bar, g=christie_863_no_sw_bar, h=christie_58866_no_sw_bar,
+  a= dickens_98_all_bar, b=dickens_1400_all_bar, c=christie_863_all_bar, d=christie_58866_all_bar
+  )
+
+wrap_plots(plotlist, guides = 'keep', design = layoutplot)
+```
+
+With Stop Words Analysis Attempt
+
+```{r}
+dickens_98_all_top_10 <- arrange(dickens_98_clean_df_all_word_counts, desc(total_count)) %>%
+    top_n(10)
+dickens_98_all_top_10
+
+dickens_1400_all_top_10 <- arrange(dickens_1400_clean_df_all_word_counts, desc(total_count)) %>%
+    top_n(10)
+dickens_1400_all_top_10
+
+christie_863_all_top_10 <- arrange(christie_863_clean_df_all_word_counts, desc(total_count)) %>%
+    top_n(10)
+
+christie_58866_all_top_10 <- arrange(christie_58866_clean_df_all_word_counts, desc(total_count)) %>%
+    top_n(10)
+christie_58866_all_top_10
+```
+
+Analysis with getting top 10 words for 4 of the books for both with and without stop words. Combining them all (union), getting 13?, and doing a correlation matrix
+
+```{r}
+top_words_combined <- Reduce(union, list(dickens_98_all_top_10$word, dickens_1400_all_top_10$word, christie_863_all_top_10$word, christie_58866_all_top_10$word))
+top_words_combined
+```
+
+```{r}
+dickens_98_top_c <- dickens_98_clean_df_all_word_counts %>%
+  filter(word %in% top_words_combined)
+dickens_98_top_c
+
+dickens_1400_top_c <- dickens_1400_clean_df_all_word_counts %>%
+  filter(word %in% top_words_combined)
+
+christie_863_top_c <- christie_863_clean_df_all_word_counts %>%
+  filter(word %in% top_words_combined)
+
+christie_58866_top_c <- christie_58866_clean_df_all_word_counts %>%
+  filter(word %in% top_words_combined)
+christie_58866_top_c
+```
+
+
+```{r}
+cols <- c("word", "total_count")
+top_c_list <- list(dickens_98_top_c[, cols], dickens_1400_top_c[, cols], christie_863_top_c[, cols], christie_58866_top_c[, cols])
+top_words <- top_c_list %>% 
+  reduce(full_join, by="word") %>% 
+  rename(
+    "dickens_98" = "total_count.x", 
+    "dickens_1400" = "total_count.y",
+    "christie_863" = "total_count.x.x",
+    "christie_58866" = "total_count.y.y"
+    )
+#top_words
+```
+
+
+```{r}
+cols <- c("dickens_98", "dickens_1400", "christie_863", "christie_58866")
+g <- cor(top_words[, cols])
+```
+```{r Fig67, fig.height=5, fig.width=20}
+top_words
+mtab <- melt(top_words, id.vars="word")
+mtab$word <- factor(mtab$word, levels = top_words$word[order(mtab$value)])
+ggplot(data=mtab, aes(x=word, y=value, fill=word)) +
+    geom_bar(stat="identity") +
+    scale_fill_viridis_d() +
+    facet_grid(. ~ variable) + 
+    coord_flip()
+```
+
+```{r Fig2222, fig.height=5, fig.width=20, include=FALSE}
+layoutplot <- "
+efgh"
+
+plotlist <- list(
+  e= plot_bars(dickens_98_top_c), f=plot_bars(dickens_1400_top_c), g=plot_bars(christie_863_top_c), h=plot_bars(christie_58866_top_c)
+ # a= dickens_98_all_bar, b=dickens_1400_all_bar, c=christie_863_all_bar, d=christie_58866_all_bar
+  )
+
+wrap_plots(plotlist, guides = 'keep', design = layoutplot)
+```
+
+```{r, include = FALSE}
+ggcorrplot(g)
+#, ggtheme = ggplot2::theme_gray,
+ #  colors = c("#6D9EC1", "white", "#E46726"))
+```
+
+Without Stop Words Analysis Attempt
+
+```{r}
+dickens_98_all_top_10 <- arrange(dickens_98_clen_df_no_sw_word_counts, desc(total_count)) %>%
+    top_n(10)
+
+dickens_1400_all_top_10 <- arrange(dickens_1400_clen_df_no_sw_word_counts, desc(total_count)) %>%
+    top_n(10)
+
+christie_863_all_top_10 <- arrange(christie_863_clen_df_no_sw_word_counts, desc(total_count)) %>%
+    top_n(10)
+
+christie_58866_all_top_10 <- arrange(christie_58866_clen_df_no_sw_word_counts, desc(total_count)) %>%
+    top_n(10)
+```
+
+```{r}
+top_words_combined <- Reduce(union, list(dickens_98_all_top_10$word, dickens_1400_all_top_10$word, christie_863_all_top_10$word, christie_58866_all_top_10$word))
+top_words_combined
+```
+
+```{r}
+dickens_98_top_c <- dickens_98_clen_df_no_sw_word_counts %>%
+  filter(word %in% top_words_combined)
+
+dickens_1400_top_c <- dickens_1400_clen_df_no_sw_word_counts %>%
+  filter(word %in% top_words_combined)
+
+christie_863_top_c <- christie_863_clen_df_no_sw_word_counts %>%
+  filter(word %in% top_words_combined)
+
+christie_58866_top_c <- christie_58866_clen_df_no_sw_word_counts %>%
+  filter(word %in% top_words_combined)
+```
+
+```{r}
+cols <- c("word", "total_count")
+top_c_list <- list(dickens_98_top_c[, cols], dickens_1400_top_c[, cols], christie_863_top_c[, cols], christie_58866_top_c[, cols])
+top_words <- top_c_list %>% 
+  reduce(full_join, by="word") %>% 
+  rename(
+    "dickens_98" = "total_count.x", 
+    "dickens_1400" = "total_count.y",
+    "christie_863" = "total_count.x.x",
+    "christie_58866" = "total_count.y.y"
+    )
+top_words
+```
+
+33 top words when working without stop words 
+
+```{r}
+top_words <- top_words %>% replace(is.na(.), 0)
+top_words
+```
+```{r Fig22222, fig.height=5, fig.width=20}
+#top_words
+mtab <- melt(top_words, id.vars="word")
+#mtab$word = factor(mtab$word, 
+                       #levels=top_words$word)
+#mtab$word[order(mtab$value)]
+mtab$word <- factor(mtab$word, levels = top_words$word[order(mtab$value)])
+ggplot(data=mtab, aes(x=word, y=value, fill=word)) +
+    geom_bar(stat="identity") +
+    scale_fill_viridis_d() +
+    facet_grid(. ~ variable) + 
+    coord_flip()
+```
+
+```{r}
+cols <- c("dickens_98", "dickens_1400", "christie_863", "christie_58866")
+g2 <- cor(top_words[, cols],)
+g
+ggcorrplot(g)
+```
+```{r Fig28, fig.height=5, fig.width=10}
+par(mfrow=c(1,2))
+
+
+a <- ggcorrplot(g) + ggtitle("With Stop Words") + theme(plot.title = element_text(hjust = 0.5)) 
+b <- ggcorrplot(g2) + ggtitle("Without Stop Words") + theme(plot.title = element_text(hjust = 0.5)) 
+
+layoutplot <- "ab"
+
+plotlist <- list(a=a, b=b)
+
+wrap_plots(plotlist, guides = 'keep', design = layoutplot)
+
+
+#, ggtheme = ggplot2::theme_gray,
+#  colors = c("#6D9EC1", "white", "#E46726"))
+```
+
+### N-grams Part
+
+### TF-IDF Attempt 1-grams
+
+```{r}
+calc_total <- function(df) {
+  df$total <- sum(df$total_count)
+  
+  return(df)
+}
+
+rename_col_n <- function(df) {
+  df %>% 
+    rename("n" = "total_count")
+}
+```
+
+```{r}
+file_names <- list.files("/Users/ljoana/Desktop/EDAV/final_project/ProjGutenberg", pattern="*.txt", full.names=TRUE)
+file_names_short <- list.files("/Users/ljoana/Desktop/EDAV/final_project/ProjGutenberg", pattern="*.txt", full.names=FALSE)
+
+res <- lapply(file_names_short, read_book_df)
+clean_dfs <- lapply(res, clean_df_all)
+word_counts_dfs <- lapply(clean_dfs, word_counts)
+totals <- lapply(word_counts_dfs, calc_total)
+totals <- lapply(totals, rename_col_n)
+```
+
+```{r}
+#top_c_list <- list(dickens_98_top_c[, cols], dickens_1400_top_c[, cols], christie_863_top_c[, cols], christie_58866_top_c[, cols])
+tf <- totals %>% 
+  reduce(full_join, by=c("word", "book", "n", "total"))
+```
+
+
+```{r Fig6, fig.height=45, fig.width=15}
+ggplot(tf, aes(n/total, fill = book)) +
+  geom_histogram(show.legend = FALSE) +
+  xlim(NA, 0.0009) +
+  facet_wrap(~book, ncol = 3, scales = "free_y")
+```
+
+```{r}
+tf_idf_df <- tf %>%
+  bind_tf_idf(word, book, n)
+head(tf_idf_df)
+```
+
+
+### TF-IDF Attempt 2-grams
+
+```{r}
+calc_total <- function(df) {
+  df$total <- sum(df$total_count)
+  
+  return(df)
+}
+
+rename_col_n <- function(df) {
+  df %>% 
+    rename("n" = "total_count")
+}
+```
+
+```{r}
+file_names <- list.files("/Users/ljoana/Desktop/EDAV/final_project/ProjGutenberg", pattern="*.txt", full.names=TRUE)
+file_names_short <- list.files("/Users/ljoana/Desktop/EDAV/final_project/ProjGutenberg", pattern="*.txt", full.names=FALSE)
+```
+
+```{r}
+clean_df_all_bigrams <- function(df) {
+  book_words_sw <- df %>%
+    unnest_tokens(bigram, V1, token = "ngrams", n=2) %>% # tokenize and converts to tidy format
+    drop_na(bigram) %>%
+    count(book, bigram, sort = TRUE)
+    #filter(str_detect(word, "^[a-z']+$"))
+  
+  return(book_words_sw)
+}
+
+clean_birgams <- function(res_bi) {
+  bigrams_separated <- res_bi %>%
+    separate(bigram, c("word1", "word2"), sep = " ")
+  #head(bigrams_separated)
+  bigrams_filtered <- bigrams_separated %>%
+    filter(!word1 %in% stop_words$word) %>% # Q7
+    filter(!word2 %in% stop_words$word) #%>% # Q7
+    #filter(str_detect(word1, "^[a-z']+$")) %>%
+    #filter(str_detect(word2, "^[a-z']+$"))
+  #head(bigrams_filtered)
+  bigram_counts <- bigrams_filtered %>% 
+    count(word1, word2, sort = TRUE)
+  #head(bigram_counts)
+  bigrams_united <- bigrams_filtered %>%
+    unite(bigram, word1, word2, sep = " ") # Q8
+  #head(bigrams_united)
+  return(bigrams_united)
+}
+
+bigram_tf_idf <- function(bigrams_united) {
+  bigram_tf_idf <- bigrams_united %>%
+    bind_tf_idf(bigram, book, n) %>% # Q9
+    arrange(desc(tf_idf))
+
+  return(bigram_tf_idf)
+}
+```
+
+
+
+```{r}
+res <- lapply(file_names_short, read_book_df)
+clean_dfs_b <- lapply(res, clean_df_all_bigrams)
+clean_b_all <- lapply(clean_dfs_b, clean_birgams)
+
+tf <- clean_b_all %>% 
+  reduce(full_join, by=c("bigram", "book", "n"))
+
+
+bigrams_tf_idf <- bigram_tf_idf(tf)
+head(bigrams_tf_idf)
+```
+
+```{r}
+bigrams_tf_idf_cl <- bigrams_tf_idf %>%
+  filter(idf != log(26))
+head(bigrams_tf_idf_cl)
+```
+
+### t-SNE attempt
+
+Top 100 bigrams after applyig tf-idf
+
+```{r}
+top_100_bigrams <- bigrams_tf_idf_cl %>%
+  group_by(bigram) %>%
+  summarise(sum_tf_idf = sum(tf_idf)) %>%
+  arrange(desc(sum_tf_idf)) %>%
+  top_n(100)
+```
+
+
+```{r}
+books <- c("pg1342", "pg1400", "pg141", "pg158",  "pg159",  "pg161", "pg2097", "pg24022", "pg244", "pg2852", "pg28698", "pg29132", "pg31516", "pg32832", "pg3289", "pg35", "pg36", "pg5230", "pg580", "pg58866", "pg66446", "pg67160", "pg67173", "pg766", "pg863", "pg98")
+books_empty_df <- data.frame(book=books, tf_idf=NA)
+```
+
+```{r}
+modified_dfs_list <- c()
+for (birgam_it in top_100_bigrams$bigram) {
+  
+  modified <- bigrams_tf_idf_cl %>%
+    select("book", "bigram", "tf_idf") %>%
+    filter(bigram == birgam_it) %>%
+    full_join(books_empty_df, by=c("book", "tf_idf")) %>%
+    filter(!duplicated(book))
+  
+  modified$bigram <- birgam_it
+  modified <- modified %>% replace(is.na(.), 0)
+  modified_dfs_list <- append(modified_dfs_list, list(modified))
+}
+```
+
+
+```{r}
+top_bi_df <- bind_rows(modified_dfs_list)
+top_bi_df <- top_bi_df %>% spread(book, tf_idf)
+```
+
+```{r}
+top_bi_df_tr <- top_bi_df %>% rotate_df(cn=TRUE, rn="book")
+```
+```{r}
+top_bi_df_tr_x <- top_bi_df_tr %>%
+  select(-book)
+```
+
+```{r}
+set.seed(1)
+tsne <- Rtsne(top_bi_df_tr_x, dims = 2, perplexity = 5)
+```
+
+
+```{r}
+tsne_df <- data.frame(y1=tsne$Y[,1], 
+                     y2=tsne$Y[,2],
+                     book=top_bi_df_tr$book)
+tsne_df$author <- with(
+  tsne_df, ifelse(book %in% c("pg141", "pg158", "pg161", "pg1342"), 'Jane Austin',
+            ifelse(book %in% c("pg244", "pg2097", "pg2852", "pg3289"), 'Conan Doyle',
+              ifelse(book %in% c("pg98", "pg1400", "pg580", "pg766", "pg24022"), 'Charles Dickens',
+                ifelse(book %in% c("pg67160", "pg67173", "pg66446", "pg863", "pg58866"), 'Agatha Christie',
+                  ifelse(book %in% c("pg35", "pg36", "pg159", "pg5230"), 'H. G. Wells', 'Philip K. Dick'))))))
+tsne_df
+```
+
+
+```{r}
+ggplot(tsne_df, aes(x=y1,y=y2,colour=author)) + 
+  geom_point(aes(label=author), size=2) +
+  geom_density_2d() +
+  labs(title="t-SNE Embedding")
+```
+
+### PCA Attempt
+
+```{r}
+df_pca <- prcomp(top_bi_df_tr_x, scale.=TRUE)
+```
+
+```{r  Fig9, fig.height=4, fig.width=6}
+pc1 <- df_pca$x[, 1]
+pc2 <- df_pca$x[, 2]
+pc_df <- data.frame(pc1, pc2, book=top_bi_df_tr$book)
+
+pc_df$author <- with(
+  pc_df, ifelse(book %in% c("pg141", "pg158", "pg161", "pg1342"), 'Jane Austin',
+            ifelse(book %in% c("pg244", "pg2097", "pg2852", "pg3289"), 'Conan Doyle',
+              ifelse(book %in% c("pg98", "pg1400", "pg580", "pg766", "pg24022"), 'Charles Dickens',
+                ifelse(book %in% c("pg67160", "pg67173", "pg66446", "pg863", "pg58866"), 'Agatha Christie',
+                  ifelse(book %in% c("pg35", "pg36", "pg159", "pg5230"), 'H. G. Wells', 'Philip K. Dick'))))))
+pc_df
+```
+
+```{r}
+ggplot(pc_df, aes(x=pc1,y=pc2,colour=author)) + 
+  geom_point(aes(label=author), size=2) + 
+  geom_density_2d() +
+  labs(title="PCA: projection of 4526 music tracks observations onto first two PCs")
+```
+### k-means attempt
+
+
+```{r}
+cols <- c("pc1", "pc2")
+
+WCSS_vec <- c()
+for(k in 1:9){
+  penguin_km_k <- kmeans(pc_df[,cols], centers=k, nstart=10)
+  WCSS_vec[k] <- penguin_km_k$tot.withinss
+}
+
+ggplot(data.frame(k=1:9,WCSS_vec)) + 
+  geom_line(mapping=aes(x=k,y=WCSS_vec)) + geom_point(mapping=aes(x=k,y=WCSS_vec)) +
+  ylab("WCSS")
+```
+```{r}
+cols <- c("pc1", "pc2")
+penguin_pca_km2 <- kmeans(pc_df[,cols], centers=3, nstart = 10)
+
+pc_km_df <- bind_cols(pc_df,cluster=as.factor(penguin_pca_km2$cluster))
+
+ggplot(pc_km_df, aes(x=pc1,y=pc2)) +
+  geom_point(mapping = aes(colour=cluster)) +
+  geom_density_2d(alpha=0.4) + 
+  xlab("Principal component 1") + ylab("Principal component 2")
+
+factoextra::fviz_cluster(penguin_pca_km2, 
+             data = pc_df[,cols], 
+             labelsize = 0)  #  otherwise the observations are each labelled
+```
+
+
+### part 2
+
+```{r}
+WCSS_vec <- c()
+for(k in 1:9){
+  penguin_km_k <- kmeans(top_bi_df_tr_x, centers=k, nstart=10)
+  WCSS_vec[k] <- penguin_km_k$tot.withinss
+}
+
+ggplot(data.frame(k=1:9,WCSS_vec)) + 
+  geom_line(mapping=aes(x=k,y=WCSS_vec)) + geom_point(mapping=aes(x=k,y=WCSS_vec)) +
+  ylab("WCSS")
+```
+
+```{r}
+penguin_pca_km2 <- kmeans(top_bi_df_tr_x, centers=4)
+
+pc_km_df <- bind_cols(top_bi_df_tr_x,cluster=as.factor(penguin_pca_km2$cluster))
+
+
+fviz_cluster(penguin_pca_km2, 
+             data = top_bi_df_tr_x, 
+             labelsize = 0)  #  otherwise the observations are each labelled
+```
