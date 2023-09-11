@@ -1,0 +1,119 @@
+---
+title: "Assessment 4"
+author: "Joana Levtcheva, CID 01252821"
+header-includes:
+  - \usepackage{xcolor}
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r load libraries}
+library(ggplot2)
+library(GGally)
+library(dplyr)
+```
+
+## Q1
+
+### Data Summary
+
+```{r}
+df <- read.csv("music-tracks.csv")
+summary(df)
+
+# remove track genre labels 
+df_x <- df %>% dplyr::select(-track_genre)
+```
+
+
+```{r r Fig0, fig.height=25, fig.width=25, include=FALSE}
+#pairs(df_x)
+ggpairs(data = df, mapping = aes(colour = track_genre, alpha = 0.6))
+ggpairs(data = df_x)
+```
+
+We want to perform principal component analysis on the matrix of feature variables, using the singular value decomposition, so we are going to use the functin `prcomp` which we are going to apply to the scaled matrix of feature variables (leading to having mean 0 for every feature). This is achieved by setting `scale.=TRUE`.
+
+```{r}
+df_pca <- prcomp(df_x, scale.=TRUE)
+```
+
+In order to evaluate the proportion of variance in these features that is retained in the first three principal components let's take a look at the summary of the applied PCA:
+
+```{r}
+summary(df_pca)
+```
+
+From the `Cumulative Proportion` we can conclude that the first three components together explain 79.97% of the variability.
+
+Now, let's visualise the projection of the feature matrix onto its first two principal components. First, we are going to visualise the categories in one plot, choosing to represent each data point as a point object, and each point from a category will have its unique colour. As `track_genre` is a discrete variable, by default `ggplot2` will choose the colours for encoding to be equidistant points on an HSL colour circle. Because of the higher density of the data I have chosen to set a smaller size for the points so that there is more visibility if some categories are overlapping.
+
+```{r  Fig4, fig.height=4, fig.width=6}
+pc1 <- df_pca$x[, 1]
+pc2 <- df_pca$x[, 2]
+pc_df <- data.frame(pc1, pc2, track_genre=df$track_genre)
+ggplot(pc_df, aes(x=pc1,y=pc2,colour=track_genre)) + 
+  geom_point(aes(label=track_genre), size=1) + 
+  labs(title="PCA: projection of 4526 music tracks observations onto first two PCs")
+```
+
+In the previous plot, given the higher density of the data and the fact that the categories are not very distinct, it is hard to see the exact categories outlines. Also, as we increase the number of colours required, then, we reduce the distinction between the chosen colours. Looking at the plot and legend we can claim that `folk`, `jazz`, and `latino` have colours which can't be easily distinguished, especially when these categories are somewhat overlapping (folk and jazz for example). So, we might want to have a look at every track genre individually. This can be done with a facet plot. It preserves the dimensions of the original plot, and by also plotting them on one row we can still observe the whole picture while allowing for better individual category visibility, and eventually uncovering hidden parts of one category under another one. Moreover, the colours for every category are set to be the same as in the common plot which allows to make a fast connection between the plots.
+
+```{r Fig5, fig.height=5, fig.width=30}
+ggplot(data = pc_df) + 
+  geom_point(mapping = aes(x = pc1, y = pc2, colour = track_genre)) + 
+  facet_wrap(~ track_genre, nrow = 1) +
+  theme(legend.position = "none")
+```
+
+## Q2
+
+### Part a
+
+t-distributed stochastic neighbour embedding (t-SNE) is a dimensionality reduction technique that aims to preserve dissimilarity between observations in a high-dimensional dataset.
+
+Suppose the dataset has n observations in m-dimensional space. The method works by first constructing the joint discrete probability distribution $P = \{p_{ij}, i,j=1,..,n\}$, where $p_{ij} = \frac{p_{j|i} + p_{i|j}}{2n}$, with $p_{j|i}$ being the conditional probabilities of point i picking j as its neighbour over the observations in the m-dimensional space, using the Euclidean distances, under a Gaussian centred at point i and a given variance $\sigma_i^2$; For a given embedding in $d << m$, we then similarly construct the discrete joint probability distribution $Q := \{q_{ij}, i,j = 1, ..., n, i \neq j \}$, defining the similarity between points in the d-dimensional embedded space using a t-distribution with 1 degree-of-freedom. An optimal embedding is then found by minimising the Kullback-Leibler divergence of the joint probability distribution P from the joint probability distribution Q.
+
+The perplexity parameter is a tunable hyperparameter associated with the construction of the similarity probabilities $p_{ij}, i,j=1,...,n$, that balances attention between small-scale and large-scale structure in the original dataset: low values of the perplexity will result in embeddings that preserve the small-scale structure of the data; high values of the perplexity will result in embeddings that focus on dissimilarities in the data over large scales.
+
+### Part b
+
+I experimented with perplexity values mainly in the range [5, 50], and I also explored values outside of this range. In my opinion values around 50 produce a better result rather than values signaficantly smaller or larger. Small values of perplexity emphasise more local disimilarities which typically leads to not so strongly defined clusters, and in oure case almost completely fails to divide the genre classes. For larger values than 50 we do not get any further improvements, only increasing the processing time.
+
+
+```{r}
+library("Rtsne")
+```
+
+```{r}
+set.seed(2022)
+tsne <- Rtsne(df_x, dims = 2, perplexity = 50)
+```
+
+```{r  Fig6, fig.height=4.5, fig.width=6}
+tsne_df <- data.frame(y1=tsne$Y[,1], 
+                     y2=tsne$Y[,2],
+                     track_genre=df$track_genre)
+
+ggplot(tsne_df, aes(x=y1,y=y2,colour=track_genre)) + 
+  geom_point(aes(label=track_genre), size=1) +
+  labs(title="t-SNE Embedding")
+```
+
+```{r Fig7, fig.height=5, fig.width=30}
+ggplot(data = tsne_df) + 
+  geom_point(mapping = aes(x = y1, y = y2, colour=track_genre), alpha = 0.6) + 
+  facet_wrap(~ track_genre, nrow = 1) + 
+  theme(legend.position = "none")
+```
+
+The PC projection produces overlapping "round" groups next to each other. The track genres `ambient` and `drum-and-bass` seem to be more distinct than the others. Although they are also overlapping with other genres, these parts are with lower density, and the most distinct parts are with higher density. Latino and rock are overlapping for the bigger part of their areas, as well as there is significant overlapping between jazz and folk.
+
+The t-SNE embedding produces groups in a lunar form which are also overlapping from the outside to the inside. Again, the two more distinct groups are `ambient` and `drum-and-bass`. As in the PC, they are overlapping with other genres bet the higher density of the groups is in the distinct regions. Folk and jazz, as well as again latino and rock are respectively overlapping for most of their areas. 
+
+The groups in the PC projection seem to be more well defined and distinguishable even when there is overlapping, compared to the produced groups from the t-SNE embedding which are smaller, thinner, in lunar form, and almost all of them are overlapping.
