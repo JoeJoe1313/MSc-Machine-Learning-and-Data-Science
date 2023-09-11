@@ -1,0 +1,258 @@
+---
+title: "Report Assessment 4"
+author: "Joana Levtcheva, CID 01252821"
+output: pdf_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning = TRUE, message = TRUE)
+```
+
+```{r load libraries}
+#library(faraway)
+#library(lars)
+#library(pls)
+#ibrary(ggplot2)
+#library(GGally)
+#library(dplyr)
+```
+
+### Part 1
+
+```{r load data}
+
+load("leukdata.RData")
+
+# Columns 1 to 47 are for 0 
+# Columns 48 to 72 are for 1
+
+status_0 <- leukdata[,1:47]
+status_1 <- leukdata[,48:72]
+```
+
+
+```{r Fig1, fig.height=5, fig.width=15}
+par(mfrow=c(1,3))
+hist(apply(leukdata, 1, mean))
+hist(apply(status_0, 1, mean))
+hist(apply(status_1, 1, mean))
+```
+
+```{r Fig2, fig.height=5, fig.width=15}
+par(mfrow=c(1,3))
+hist(apply(leukdata, 1, sd))
+hist(apply(status_0, 1, sd))
+hist(apply(status_1, 1, sd))
+```
+
+```{r Fig3, fig.height=5, fig.width=5}
+qqplot(apply(status_0, 1, mean), apply(status_1, 1, mean))
+```
+
+```{r Fig4, fig.height=5, fig.width=15}
+par(mfrow=c(1,2))
+shapiro_pvalue <- function(x){
+  return(shapiro.test(x)[[2]])
+}
+# hist(apply(leukdata, 1, shapiro_pvalue))
+hist(apply(status_0, 1, shapiro_pvalue))
+hist(apply(status_1, 1, shapiro_pvalue))
+```
+
+When we are looking at the distributions for both the mean and the standard deviation they look extremely
+ similar for all groups - all of the people, status 0 and status 1. This is further confirmed when looking 
+ at the qqplot comparing the distributions of the means as it resembles are very straight line. This means 
+ that distinguishing the statuses might not be very straightforward. Either there aren't any good features 
+ for distinguishing, or at least they are very few and are hidden by the vast majority of useless variables. 
+ At least on the surface level they seem very similar.The histograms of the distributions of the p-values of 
+ the Shapiro-Wilk test are the first thong that gives us a bit of hope. They also seem similar but at least 
+ are not identical. It looks like the status 0 has more low values which means that fewer variables are normally 
+ distributed. Hopefully, this will allow the decision trees and the random forest to find some 
+ high level features that will distinguish the statuses.
+
+### Part 2
+
+```{r}
+library(tree)
+```
+
+```{r}
+dim(t(leukdata))
+df <- as.data.frame(t(leukdata))
+zeroes <- as.vector(rep(0, 47))
+ones <- as.vector(rep(1, 25))
+df$status <- c(zeroes, ones)
+df$status <- as.factor(df$status)
+rownames(df) <- NULL
+```
+
+
+```{r}
+set.seed(1)
+train <- sample(1:nrow(df), size=54, replace=FALSE)
+
+df_train <- df[train, ]
+df_test <- df[-train, ]
+# fit classification tree
+statuses <- tree::tree(status ~., data = df_train)
+
+plot(statuses)
+text(statuses, pretty = 0)
+
+# Show summary
+summary(statuses)
+res_test <- predict(statuses, df_test, type="class")
+cm_test <- table(df_test$status, res_test)
+print("Test Confusion Matrix")
+print(cm_test)
+
+res_train <- predict(statuses, df_train, type="class")
+cm_train <- table(df_train$status, res_train)
+print("Train Confusion Matrix")
+print(cm_train)
+```
+
+```{r}
+set.seed(1)
+mis_rates <- c()
+for (i in (1:100)){
+  train <- sample(1:nrow(df), size=54, replace=FALSE)
+  df_train <- df[train, ]
+  df_test <- df[-train, ]
+  statuses <- tree::tree(status ~., data = df_train)
+  res_test <- predict(statuses, df_test, type="class")
+  cm_test <- table(df_test$status, res_test)
+  misclassification_rate <- (sum(cm_test) - sum(diag(cm_test))) / sum(cm_test)
+  mis_rates <- append(mis_rates, misclassification_rate)
+}
+hist(mis_rates)
+```
+
+
+
+### Part 3
+
+```{r}
+library(randomForest)
+
+set.seed(1)
+train <- sample(1:nrow(df), size=54, replace=FALSE)
+df_train <- df[train, ]
+df_test <- df[-train, ]
+
+fit_rf <- randomForest(status ~ .,
+                     data = df_train,
+                     na.action=na.omit,
+                     importance = TRUE,
+                     mtry=10)
+summary(fit_rf)
+
+res_test <- predict(fit_rf, df_test, type="class")
+cm_test <- table(df_test$status, res_test)
+misclassification_rate <- (sum(cm_test) - sum(diag(cm_test))) / sum(cm_test)
+```
+
+```{r part 3}
+set.seed(1)
+m_rates <- c()
+for (m in c(2,4,8,16,32,64)){
+  m_rates_curr <- c()
+  for (i in (1:5)){
+
+    train <- sample(1:nrow(df), size=54, replace=FALSE)
+    df_train <- df[train, ]
+    df_test <- df[-train, ]
+
+    fit_rf <- randomForest(status ~ .,
+                        data = df_train,
+                        na.action=na.omit,
+                        importance = TRUE,
+                        mtry=m)
+    res_test <- predict(fit_rf, df_test, type="class")
+    cm_test <- table(df_test$status, res_test)
+    misclassification_rate <- (sum(cm_test) - sum(diag(cm_test))) / sum(cm_test)
+    m_rates_curr <- append(m_rates_curr, misclassification_rate)
+  }
+  m_rates <- append(m_rates, mean(m_rates_curr))
+  print(m)
+}
+```
+
+```{r}
+barplot(m_rates, names.arg=c(2,4,8,16,32,64), cex.names=0.8)
+```
+
+Observing the bar plot for the misclassification_rates respectively for mtry with 
+values 2,4,8,16,32,64,128,256,512,1024, starting from 32 we begin to have smaller 
+misclassification rate, so let's choose the smallest value to be the mtry value for the next part,
+mtry would be 32.
+
+### Part 4
+
+```{r}
+set.seed(1)
+
+chosen_mtry <- 32
+train <- sample(1:nrow(df), size=54, replace=FALSE)
+df_train <- df[train, ]
+df_test <- df[-train, ]
+
+fit_rf <- randomForest(status ~ .,
+                    data = df_train,
+                    na.action=na.omit,
+                    importance = TRUE,
+                    mtry=chosen_mtry)
+res_test <- predict(fit_rf, df_test, type="class")
+cm_test <- table(df_test$status, res_test)
+misclassification_rate <- (sum(cm_test) - sum(diag(cm_test))) / sum(cm_test)
+# m_rates_curr <- append(m_rates_curr, misclassification_rate)
+print(misclassification_rate)
+varImpPlot(fit_rf)
+```
+
+Let's remove the top 5 performing variables based on the variable importance plot: 
+V4847, V3252, V760, V6041, V683, V4407, V2121
+
+```{r}
+drops <- c("V4847", "V3252", "V760", "V6041", "V683", "V4407", "V2121")
+df_new <- df[ , !(names(df) %in% drops)]
+```
+
+```{r}
+m_rates_curr <- c()
+for (i in (1:5)){
+  train <- sample(1:nrow(df_new), size=54, replace=FALSE)
+  df_train <- df_new[train, ]
+  df_test <- df_new[-train, ]
+
+  fit_rf <- randomForest(status ~ .,
+                      data = df_train,
+                      na.action=na.omit,
+                      importance = TRUE,
+                      mtry=chosen_mtry)
+  res_test <- predict(fit_rf, df_test, type="class")
+  cm_test <- table(df_test$status, res_test)
+  misclassification_rate <- (sum(cm_test) - sum(diag(cm_test))) / sum(cm_test)
+  m_rates_curr <- append(m_rates_curr, misclassification_rate)
+}
+mean(m_rates_curr)
+```
+
+### Part 5
+
+```{r}
+library(dplyr)
+df_imp <- df[ , c("V4847", "V3252", "V760", "V6041", "V683", "V4407", "V2121", "status")]
+
+df_imp_0 <- df_imp %>% filter(status == 0) %>% select(V4847, V3252, V760, V6041, V683, V4407, V2121)
+hist(as.matrix(df_imp_0))
+boxplot(as.matrix(df_imp_0))
+
+
+df_imp_1 <- df_imp %>% filter(status == 1) %>% select(V4847, V3252, V760, V6041, V683, V4407, V2121)
+hist(as.matrix(df_imp_1))
+boxplot(as.matrix(df_imp_1))
+```
+
