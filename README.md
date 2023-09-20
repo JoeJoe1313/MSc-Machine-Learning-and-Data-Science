@@ -3,8 +3,18 @@
 ## Year 1 (2022-2023)
 
 - Applicable Maths
-- TBD
+- Programming for Data Science
+- Ethics in Data Science and Artifical Intelligence (Part 1 and Part 2)
+- Exploratory Data Analytics and Visualisation
+- Supervised Learning
+- Big Data: Statistical Scalability with PySpark
+- Bayesian Methods and Computation
 
 ## Year 2 (2023-2024)
 
-- TBD
+- Unsupervised Learning
+- Unstructured Data Analysis
+- Ethics in Data Science and Artifical Intelligence (Part 3)
+- Learning Agents
+- Deep Learning
+- Research Project
