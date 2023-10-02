@@ -12,8 +12,8 @@
 
 ## Year 2 (2023-2024)
 
-- Unsupervised Learning
-- Unstructured Data Analysis
+- Unsupervised Learning (in progress)
+- Unstructured Data Analysis (in progress)
 - Ethics in Data Science and Artifical Intelligence (Part 3)
 - Learning Agents
 - Deep Learning
