@@ -4,6 +4,7 @@
 
 - Applicable Maths
 - Programming for Data Science
+   - Basic R and Python, namespaces, vectors and matrices, random number generation. File formats, data frames and APIs. Graphs and Time series. Objected-oriented programming. Version control with Git. Debugging, profiling and defensive programming. Unit testing. Packaging code for others. Generators. Awareness of challenges in software development for data science.
 - Ethics in Data Science and Artifical Intelligence (Part 1 and Part 2)
 - Exploratory Data Analytics and Visualisation
 - Supervised Learning
