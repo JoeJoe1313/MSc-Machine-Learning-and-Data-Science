@@ -3,6 +3,7 @@
 ## Year 1 (2022-2023)
 
 - Applicable Maths
+   - A Review of Calculus, Linear Algebra, Matrix Decomposition, Introduction to Probability Theory, Random Variables & Probability Distributions, Concentration Bounds & Convergence, Stochastic Processes, Sample-Based Statistics, Optimisation, Distance Functions
 - Programming for Data Science
    - Basic R and Python, namespaces, vectors and matrices, random number generation. File formats, data frames and APIs. Graphs and Time series. Objected-oriented programming. Version control with Git. Debugging, profiling and defensive programming. Unit testing. Packaging code for others. Generators. Awareness of challenges in software development for data science.
 - Ethics in Data Science and Artifical Intelligence (Part 1 and Part 2)
