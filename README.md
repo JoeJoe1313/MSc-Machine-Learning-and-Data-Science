@@ -17,17 +17,17 @@
 
 ## Year 2 (2023-2024)
 
-- **Unsupervised Learning** (R, Python) (in progress)
+- **Unsupervised Learning** (R, Python)
    - The module introduces tools for solving different unsupervised learning challenges. The lectures focus on techniques for dimensionality reduction, density estimation and clustering. Anomaly and outlier detection algorithms will be discussed and developed. More specific contents include:
       1. **Dimensionality reduction:** principalcomponentanalysis(PCA),extensions of PCA, non-negative matrix factorisation, independent component anal- ysis, non-linear dimensionality reduction methods.
       2. **Density estimation:** parametric density estimation, estimation of mixtures using EM algorithm, non-parametric density estimation (kernel and his- togram).
       3. **Clustering:** k-means clustering, k-medoid clustering, hierarchical cluster- ing, evaluation measures.
       4. **Anomaly and outlier detection:** clustering-based methods, density-based methods.
-- **Unstructured Data Analysis** (Python, PyTorch, skimage) (in progress)
-   - **Images:** Basics of images; Convolutional neural networks for image classification; Edge de- tection; Image denoising; Image segmentation
+- **Unstructured Data Analysis** (Python, PyTorch, scikit-image)
+   - **Images:** Basics of images; Convolutional neural networks for image classification; Edge detection; Image denoising; Image segmentation
    - **Networks:** Basics of networks; Graph embedding; Graph algorithms; Community detection; Graph kernels
    - **Text:** Basics of text data; Text vectorization; Natural language processing; Text clustering
-- **Ethics in Data Science and Artifical Intelligence (Part 3)**
-- **Learning Agents**
-- **Deep Learning**
+- **Ethics in Data Science and Artifical Intelligence (Part 3)** (Python) (in progress)
+- **Learning Agents** (Python) (in progress)
+- **Deep Learning** (Python, TensorFlow) (in progress)
 - **Research Project**
