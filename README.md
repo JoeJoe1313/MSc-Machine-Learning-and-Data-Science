@@ -31,3 +31,4 @@
 - **Learning Agents** (Python) (in progress)
 - **Deep Learning** (Python, TensorFlow) (in progress)
 - **Research Project**
+   - Main topic: **Bayesian Computation for Matrix Factorisation**
