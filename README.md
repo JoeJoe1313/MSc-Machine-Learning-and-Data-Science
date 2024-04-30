@@ -9,6 +9,7 @@
 - **Ethics in Data Science and Artifical Intelligence (Part 1 and Part 2)** (Python, R)
    - **Part 1** begins by discussing the ethical use of data itself - the  raw materials of data science pipelines. It then discusses sets of  principles that tech leaders and international bodies are adopting to  promote ethical use of data science and artificial intelligence  algorithms, including a discussion of real-world examples of failings  and adverse outcomes.
    - **Part 2** revisits the issues explored in Part 1 in  greater technical detail. This part introduces data science  methodologies that provide novel solutions to ethical problems of old  such as explainability, prejudice and bias.
+   - **Part 3**
 - **Exploratory Data Analytics and Visualisation** (R, tidyverse, ggplot2)
 - **Supervised Learning** (R)
 - **Big Data: Statistical Scalability with PySpark** (Python, Hadoop, MapReduce, PySpark)
@@ -27,8 +28,7 @@
    - **Images:** Basics of images; Convolutional neural networks for image classification; Edge detection; Image denoising; Image segmentation
    - **Networks:** Basics of networks; Graph embedding; Graph algorithms; Community detection; Graph kernels
    - **Text:** Basics of text data; Text vectorization; Natural language processing; Text clustering
-- **Ethics in Data Science and Artifical Intelligence (Part 3)** (Python) (in progress)
-- **Learning Agents** (Python) (in progress)
-- **Deep Learning** (Python, TensorFlow) (in progress)
+- **Learning Agents** (Python)
+- **Deep Learning** (Python, TensorFlow)
 - **Research Project**
    - Main topic: **Bayesian Computation for Matrix Factorisation**
