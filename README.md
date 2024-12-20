@@ -31,4 +31,5 @@
 - **Learning Agents** (Python)
 - **Deep Learning** (Python, TensorFlow)
 - **Research Project**
-   - Main topic: **Bayesian Computation for Matrix Factorisation**
+   - Main topic area: **Bayesian Computation for Matrix Factorisation**
+   - Thesis: **Probabilistic Sequential Matrix Factorisation for 12-Lead ECG Data**
