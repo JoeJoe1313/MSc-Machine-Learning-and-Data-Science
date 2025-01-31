@@ -1,5 +1,7 @@
 # MSc-Machine-Learning-and-Data-Science
 
+**Thesis:** "Probabilistic Sequential Matrix Factorisation for 12-Lead ECG Data" supervised by *Dr O. Deniz Akyildiz*
+
 ## Year 1 (2022-2023)
 
 - **Applicable Maths**
